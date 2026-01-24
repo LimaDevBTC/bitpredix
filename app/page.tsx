@@ -4,15 +4,17 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-950 bg-grid-pattern">
       <div className="max-w-2xl mx-auto px-4 py-8 sm:py-12">
-        {/* Logo / título */}
-        <header className="text-center mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
+        <header className="flex items-center justify-between mb-8">
+          <a href="/" className="font-bold text-xl sm:text-2xl tracking-tight">
             <span className="text-bitcoin">Bit</span>
             <span className="text-zinc-100">predix</span>
-          </h1>
-          <p className="mt-2 text-zinc-500">
-            Prediction market for Bitcoin price in the next minute
-          </p>
+          </a>
+          <button
+            type="button"
+            className="px-4 py-2 rounded-lg bg-bitcoin/20 text-bitcoin border border-bitcoin/40 hover:bg-bitcoin/30 hover:border-bitcoin/60 font-medium text-sm transition-colors"
+          >
+            Connect wallet
+          </button>
         </header>
 
         <MarketCard />
