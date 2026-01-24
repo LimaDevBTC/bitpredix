@@ -62,6 +62,8 @@ export function MarketCard() {
   const [priceHistory, setPriceHistory] = useState<PriceDataPoint[]>([])
   const lastRoundIdRef = useRef<string | null>(null)
   const lastTradeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const displayedRoundIdRef = useRef<string | null>(null)
+  const hadNon50ForCurrentRoundRef = useRef(false)
 
   const FETCH_TIMEOUT_MS = 20000
   const TRADING_CLOSE_SECONDS = 5
@@ -124,15 +126,29 @@ export function MarketCard() {
       const res = await fetch('/api/round', { signal: ctrl.signal })
       const data = await res.json()
       if (data.ok) {
+        const roundId = data.round?.id ?? null
+        const sameRound = roundId != null && roundId === displayedRoundIdRef.current
+        const incomingIs50 =
+          typeof data.priceUp === 'number' && typeof data.priceDown === 'number' &&
+          Math.abs(data.priceUp - 0.5) < 0.01 && Math.abs(data.priceDown - 0.5) < 0.01
+        const skipPrices = sameRound && incomingIs50 && hadNon50ForCurrentRoundRef.current
+
+        if (roundId != null && roundId !== displayedRoundIdRef.current) {
+          displayedRoundIdRef.current = roundId
+          hadNon50ForCurrentRoundRef.current = false
+        }
+
         setRound(data.round)
-        setPriceUp(data.priceUp)
-        setPriceDown(data.priceDown)
+        if (!skipPrices) {
+          setPriceUp(data.priceUp ?? 0.5)
+          setPriceDown(data.priceDown ?? 0.5)
+          if (data.round && data.priceUp !== undefined && data.priceDown !== undefined) {
+            addPricePoint(data.round, data.priceUp, data.priceDown)
+          }
+          if (!incomingIs50) hadNon50ForCurrentRoundRef.current = true
+        }
         setError(null)
         setResolving(false)
-        
-        if (data.round && data.priceUp !== undefined && data.priceDown !== undefined) {
-          addPricePoint(data.round, data.priceUp, data.priceDown)
-        }
 
         if (data.resolvedRound) {
           setResolutionData(data.resolvedRound)
@@ -208,11 +224,11 @@ export function MarketCard() {
       })
       const data = await res.json()
       if (data.ok) {
+        hadNon50ForCurrentRoundRef.current = true
         saveTrade({ roundId: data.roundId, side, shares: data.sharesReceived, amountUsd: v })
         setLastTrade({ side, shares: data.sharesReceived, price: data.pricePerShare })
         setAmount('')
         
-        // Remove o lastTrade após 5 segundos
         if (lastTradeTimeoutRef.current) {
           clearTimeout(lastTradeTimeoutRef.current)
         }
