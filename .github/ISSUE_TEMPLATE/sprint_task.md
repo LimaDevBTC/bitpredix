@@ -1,8 +1,8 @@
 ---
-name: Sprint task (contrato)
-about: Tarefa de sprint do contrato Bitpredix
+name: Sprint task
+about: Tarefa de sprint do escopo Bitpredix
 title: '[Sprint X] '
-labels: 'contract'
+labels: 'deliverable'
 assignees: ''
 ---
 
@@ -15,7 +15,7 @@ assignees: ''
 - [ ] 6 - Beta Launch
 
 ## Descrição
-(Descreva o entregável conforme o contrato.)
+(Descreva o entregável conforme `docs/SPRINT_DELIVERABLES.md`.)
 
 ## Critérios de aceite
 - [ ] Entregável completo
@@ -23,4 +23,4 @@ assignees: ''
 - [ ] Testes passando (quando aplicável)
 
 ## Referências
-- `docs/CONTRACT.md`
+- `docs/SPRINT_DELIVERABLES.md`

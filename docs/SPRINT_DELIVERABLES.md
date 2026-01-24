@@ -1,45 +1,11 @@
-# Contrato de Parceria — BITPredix
+# Entregáveis por Sprint — Bitpredix MVP
 
-**Rio de Janeiro, 20/01/2026**
-
----
-
-## Partes
-
-| Papel | Nome | Participação nos lucros |
-|-------|------|-------------------------|
-| Desenvolvedor responsável Web3 | Edson Carlos Almeida Lima | 10% |
-| Coordenador do projeto Web3 | Douglas Miranda | 10% |
-| Investidor inicial do projeto Web3 | Gerson Lerner | 80% |
+Escopo do MVP (6 sprints). Referência para acompanhamento (ex.: GitHub Projects).  
+Ver `docs/GITHUB_PROJECTS.md` para configurar o quadro.
 
 ---
 
-## Objeto
-
-Parceria para desenvolver o projeto **BITPredix**, plataforma de previsão do preço do Bitcoin em intervalo de tempo de **1 minuto**.
-
----
-
-## Modelo de investimento
-
-- **USDT 1.000** por sprint (6 sprints)
-- **Total:** USDT 6.000
-
-### Liberação do pagamento
-
-Pagamento liberado somente após:
-
-- [ ] Entregáveis do sprint completos  
-- [ ] Código no GitHub  
-- [ ] Testes passando  
-- [ ] Demo em vídeo  
-- [ ] Sprint review validada  
-
----
-
-## Escopo do MVP (6 semanas)
-
-### Sprint 1 – Foundation
+## Sprint 1 – Foundation
 
 | Item | Status | Observações |
 |------|--------|-------------|
@@ -49,9 +15,9 @@ Pagamento liberado somente após:
 | Estrutura base do smart contract | ✅ Feito | `contracts/bitpredix.clar` + `contracts/README.md` |
 | Frontend inicial (layout + rotas) | ✅ Feito | Next.js App Router, página principal |
 
-**GitHub Projects:** Ver `docs/GITHUB_PROJECTS.md` para acompanhar o desenvolvimento sem código.
+---
 
-### Sprint 2 – Smart Contracts
+## Sprint 2 – Smart Contracts
 
 | Item | Status | Observações |
 |------|--------|-------------|
@@ -63,7 +29,9 @@ Pagamento liberado somente após:
 | 100% cobertura de testes | ⬜ Pendente | Sem testes automatizados |
 | Wallet connection no frontend | ⬜ Pendente | — |
 
-### Sprint 3 – Frontend Core
+---
+
+## Sprint 3 – Frontend Core
 
 | Item | Status | Observações |
 |------|--------|-------------|
@@ -73,7 +41,9 @@ Pagamento liberado somente após:
 | APIs básicas | ✅ Feito | `/api/round`, `/api/rounds`, `/api/btc-price` |
 | Schema do banco | ⬜ Pendente | Estado em memória + localStorage |
 
-### Sprint 4 – Integração Blockchain
+---
+
+## Sprint 4 – Integração Blockchain
 
 | Item | Status | Observações |
 |------|--------|-------------|
@@ -82,7 +52,9 @@ Pagamento liberado somente após:
 | Histórico pessoal de apostas | ✅ Parcial | localStorage; on-chain pendente |
 | Claim de ganhos via wallet | ⬜ Pendente | — |
 
-### Sprint 5 – Polish & Features
+---
+
+## Sprint 5 – Polish & Features
 
 | Item | Status | Observações |
 |------|--------|-------------|
@@ -92,7 +64,9 @@ Pagamento liberado somente após:
 | Performance (Lighthouse >90) | ⬜ Pendente | Não medido |
 | Analytics e monitoring | ⬜ Pendente | — |
 
-### Sprint 6 – Beta Launch
+---
+
+## Sprint 6 – Beta Launch
 
 | Item | Status | Observações |
 |------|--------|-------------|
@@ -119,30 +93,9 @@ Pagamento liberado somente após:
 
 ---
 
-## Notas importantes
+## Notas
 
-1. **Terminologia:** O produto usa “trade” / “trading” (prediction market). Os contratos mencionam “place-bet”; na implementação pode-se usar `place-trade` ou manter `place-bet` apenas no contrato, conforme definido em conjunto.
-
-2. **Stack alvo:** Stacks, USDCx, Clarity — conforme `docs/TOKEN_ARCHITECTURE.md` e `docs/FUNDS_ARCHITECTURE.md`.
-
-3. **IDs de rodada:** Formato `#YYYYMMDDHHMM` (ex.: `#202601231808`) para unicidade global.
-
-4. **Versão atual:** Beta 0.0.1 (footer do site).
-
----
-
-## Assinaturas
-
-```
-_____________________________
-Edson Carlos Almeida Lima
-Desenvolvedor responsável Web3
-
-_____________________________
-Douglas Miranda
-Coordenador do projeto Web3
-
-_____________________________
-Gerson Lerner
-Investidor inicial do projeto Web3
-```
+- **Terminologia:** Produto usa “trade” / “trading”; contratos Clarity podem usar `place-bet` internamente.
+- **Stack:** Stacks, USDCx, Clarity — `docs/TOKEN_ARCHITECTURE.md`, `docs/FUNDS_ARCHITECTURE.md`.
+- **IDs de rodada:** `#YYYYMMDDHHMM` (ex.: `#202601231808`).
+- **Versão:** Beta 0.0.1 (footer do site).

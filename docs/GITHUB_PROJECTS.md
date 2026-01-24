@@ -1,6 +1,6 @@
 # GitHub Projects — Acompanhar o Bitpredix sem precisar de código
 
-O **GitHub Projects** é um quadro (tipo Kanban) onde você vê tarefas, sprints e progresso. Ideal para o **Douglas** (coordenador) e **Gerson** (investidor) acompanharem o desenvolvimento.
+O **GitHub Projects** é um quadro (tipo Kanban) onde você vê tarefas, sprints e progresso. Ideal para coordenadores e investidores acompanharem o desenvolvimento sem precisar de código.
 
 ---
 
@@ -21,7 +21,7 @@ Sugestão de colunas:
 | Coluna | Significado |
 |--------|-------------|
 | **Backlog** | A fazer |
-| **Sprint 1** … **Sprint 6** | Tarefas do contrato por sprint |
+| **Sprint 1** … **Sprint 6** | Tarefas por sprint |
 | **In progress** | Em desenvolvimento |
 | **Done** | Concluído |
 
@@ -29,23 +29,23 @@ Você pode usar só **Todo** | **In progress** | **Done** se preferir algo mais 
 
 ---
 
-## 3. Criar Issues a partir do contrato
+## 3. Criar Issues a partir do escopo
 
-As **issues** são as “tarefas” do projeto. Cada entregável do contrato vira uma issue. Assim, você acompanha tudo pelo Project sem mexer em código.
+As **issues** são as “tarefas” do projeto. Cada entregável do escopo (ver `SPRINT_DELIVERABLES.md`) vira uma issue. Assim, você acompanha tudo pelo Project sem mexer em código.
 
 ### Como criar uma issue
 
 1. No repositório, aba **Issues** → **New issue**.
 2. **Title:** use os títulos abaixo (ou parecidos).
-3. **Description:** pode colar o trecho do contrato ou um resumo.
+3. **Description:** pode colar o trecho do `SPRINT_DELIVERABLES.md` ou um resumo.
 4. **Labels:** crie e use, por exemplo:
    - `sprint-1`, `sprint-2`, … `sprint-6`
-   - `contract` (entregável do contrato)
+   - `deliverable` (entregável do escopo)
 5. **Create issue**.
 
 ### Issues sugeridas para Sprint 1 (Foundation)
 
-| # | Título | Label | Status no contrato |
+| # | Título | Label | Status |
 |---|--------|-------|--------------------|
 | 1 | [Sprint 1] Setup do repositório | `sprint-1` | ✅ Feito |
 | 2 | [Sprint 1] CI/CD e ambiente | `sprint-1` | ✅ Feito |
@@ -57,7 +57,7 @@ Crie essas 5 issues. As que já estão feitas podem ser marcadas como **Done** n
 
 ### Issues para Sprints 2–6 (backlog)
 
-Use o **CONTRACT.md** como referência. Exemplos:
+Use o **SPRINT_DELIVERABLES.md** como referência. Exemplos:
 
 - `[Sprint 2] create-round no contrato Clarity`
 - `[Sprint 2] place-bet no contrato Clarity`
@@ -66,7 +66,7 @@ Use o **CONTRACT.md** como referência. Exemplos:
 - `[Sprint 2] 100% cobertura de testes`
 - `[Sprint 2] Wallet connection no frontend`
 - `[Sprint 3] Schema do banco`
-- … e assim por diante para os itens do contrato.
+- … e assim por diante para os itens do `SPRINT_DELIVERABLES.md`.
 
 ---
 
@@ -93,7 +93,7 @@ Sempre que uma issue for concluída, mova para **Done**. Assim todos veem o prog
 ## 6. Resumo rápido
 
 1. **Projects** → criar quadro **Bitpredix MVP**.
-2. **Issues** → criar uma issue por entregável do contrato (começar pelo Sprint 1).
+2. **Issues** → criar uma issue por entregável do escopo (começar pelo Sprint 1).
 3. **Add item** no Project → adicionar as issues ao quadro.
 4. Mover os cartões entre colunas conforme o andamento.
 
