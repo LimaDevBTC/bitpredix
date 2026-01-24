@@ -338,9 +338,9 @@ function createNewRound(timestamp: number, priceAtStart: number) {
     priceAtStart,
     status: 'TRADING',
     pool: {
-      reserveUp: 10_000,    // Sempre começa em 10k
-      reserveDown: 10_000,  // Sempre começa em 10k
-      k: 100_000_000
+      reserveUp: 2_000,     // Liquidez inicial 2k (AMM mais responsivo)
+      reserveDown: 2_000,
+      k: 4_000_000
     }
   }
 }
@@ -356,7 +356,7 @@ function createNewRound(timestamp: number, priceAtStart: number) {
 ┌─────────────────────────────────────────────────┐
 │ Rodada N (round-1737654000)                    │
 ├─────────────────────────────────────────────────┤
-│ Pool: 10k UP / 10k DOWN (50/50)                │
+│ Pool: 2k UP / 2k DOWN (50/50)                  │
 │ Usuário compra: $50 → recebe 37.5 UP tokens    │
 │ Tokens: {roundId: "round-1737654000", side: UP}│
 └─────────────────────────────────────────────────┘
@@ -377,7 +377,7 @@ function createNewRound(timestamp: number, priceAtStart: number) {
 ┌─────────────────────────────────────────────────┐
 │ Rodada N+1 (round-1737654060)                   │
 ├─────────────────────────────────────────────────┤
-│ Pool: 10k UP / 10k DOWN (50/50) NOVO           │
+│ Pool: 2k UP / 2k DOWN (50/50) NOVO             │
 │ Tokens: {roundId: "round-1737654060", ...}     │
 │ ↑ IDs diferentes = sem confusão                 │
 └─────────────────────────────────────────────────┘

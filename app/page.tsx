@@ -24,7 +24,7 @@ export default function Home() {
           <h3 className="font-semibold text-zinc-300 mb-2">How it works</h3>
           <ul className="space-y-1.5">
             <li>• Each round lasts <strong className="text-zinc-300">1 minute</strong>.</li>
-            <li>• <strong className="text-zinc-300">Trading closes 5 seconds</strong> before each round ends so your trade is always registered before the closing price.</li>
+            <li>• Trading closes <strong className="text-zinc-300">when the round ends</strong> (no early cutoff).</li>
             <li>• Buy <strong className="text-up">UP</strong> if you think the price will rise, <strong className="text-down">DOWN</strong> if you think it will fall.</li>
             <li>• UP and DOWN prices are set by an AMM (constant product, Polymarket-style).</li>
             <li>• At the end of the minute: if price went up, UP pays $1 per share; if it went down, DOWN pays $1 per share.</li>

@@ -4,12 +4,14 @@
  *          Preço DOWN = reserve_up / (reserve_up + reserve_down)
  * Invariante: Preço UP + Preço DOWN ≈ 1.00
  *
- * Para compras usamos constant product: k = reserve_up * reserve_down
+ * Compras: constant product k = reserve_up * reserve_down.
+ * Liquidez menor → preço responde mais a cada trade (ex.: $10k em 90/10 move bem a linha).
  */
 
 import type { PoolState, MarketSide } from './types'
 
-const INITIAL_LIQUIDITY = 10_000
+/** Liquidez inicial por lado. 2k torna o mercado mais responsivo ($100–$10k movem o preço). */
+const INITIAL_LIQUIDITY = 2_000
 
 /** Cria estado inicial do pool (50/50) */
 export function createInitialPool(): PoolState {

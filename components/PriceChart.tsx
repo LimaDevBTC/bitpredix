@@ -9,10 +9,14 @@ export interface PriceDataPoint {
   down: number // Preço DOWN em porcentagem (0-100)
 }
 
+const ROUND_DURATION_SEC = 60
+
 interface PriceChartProps {
   data: PriceDataPoint[]
   roundStartAt: number
   roundEndsAt: number
+  /** Skew em ms: serverNow - clientNow. Evita gráfico “linha no meio” e tempo errado em produção. */
+  serverTimeSkew?: number
 }
 
 // Componente de bolinha pulsante para o último ponto
@@ -79,25 +83,25 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: unknown
   )
 }
 
-export function PriceChart({ data, roundStartAt, roundEndsAt }: PriceChartProps) {
+export function PriceChart({ data, roundStartAt, roundEndsAt, serverTimeSkew = 0 }: PriceChartProps) {
   const [currentTime, setCurrentTime] = useState(0)
   
-  // Calcula o tempo máximo (duração da rodada em segundos)
-  const maxTime = Math.floor((roundEndsAt - roundStartAt) / 1000)
+  // Duração fixa 60s (evita 1m50 ou duração errada em produção)
+  const maxTime = ROUND_DURATION_SEC
   
-  // Atualiza o tempo atual a cada 100ms para movimento suave
+  // Tempo atual com skew do servidor para alinhar com countdown e API
   useEffect(() => {
     const updateTime = () => {
-      const now = Date.now()
+      const now = Date.now() + serverTimeSkew
       const elapsed = Math.max(0, Math.min((now - roundStartAt) / 1000, maxTime))
       setCurrentTime(elapsed)
     }
     
     updateTime()
-    const interval = setInterval(updateTime, 100) // Atualiza a cada 100ms para movimento fluido
+    const interval = setInterval(updateTime, 100)
     
     return () => clearInterval(interval)
-  }, [roundStartAt, maxTime])
+  }, [roundStartAt, maxTime, serverTimeSkew])
   
   // Interpola os dados para criar movimento suave
   const chartData = useMemo(() => {
@@ -189,7 +193,7 @@ export function PriceChart({ data, roundStartAt, roundEndsAt }: PriceChartProps)
           data={chartData}
           margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
           <XAxis
             dataKey="time"
             type="number"

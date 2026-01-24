@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 
 interface CountdownProps {
   endsAt: number
+  /** Skew em ms: serverNow - clientNow no momento do fetch. Corrige countdown em produção (Vercel vs cliente). */
+  serverTimeSkew?: number
   onEnd?: () => void
   onTick?: (secondsLeft: number) => void
   className?: string
 }
 
-export function Countdown({ endsAt, onEnd, onTick, className = '' }: CountdownProps) {
+export function Countdown({ endsAt, serverTimeSkew = 0, onEnd, onTick, className = '' }: CountdownProps) {
   const [secs, setSecs] = useState(0)
   const hasCalledOnEndRef = useRef(false)
 
@@ -19,8 +21,9 @@ export function Countdown({ endsAt, onEnd, onTick, className = '' }: CountdownPr
 
   useEffect(() => {
     const tick = () => {
-      const now = Date.now()
-      const left = Math.max(0, Math.floor((endsAt - now) / 1000))
+      const now = Date.now() + serverTimeSkew
+      const raw = Math.floor((endsAt - now) / 1000)
+      const left = Math.max(0, Math.min(60, raw))
       setSecs(left)
       onTick?.(left)
       if (left <= 0 && onEnd && !hasCalledOnEndRef.current) {
@@ -31,7 +34,7 @@ export function Countdown({ endsAt, onEnd, onTick, className = '' }: CountdownPr
     tick()
     const id = setInterval(tick, 500)
     return () => clearInterval(id)
-  }, [endsAt, onEnd, onTick])
+  }, [endsAt, serverTimeSkew, onEnd, onTick])
 
   const m = Math.floor(secs / 60)
   const s = secs % 60

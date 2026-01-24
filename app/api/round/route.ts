@@ -5,11 +5,14 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+const ROUND_DURATION_MS = 60 * 1000
+
 function roundToJson(r: { id: string; startAt: number; endsAt: number; priceAtStart: number; priceAtEnd?: number; outcome?: string; status: string; pool: object }) {
+  const endsAt = r.startAt + ROUND_DURATION_MS
   return {
     id: r.id,
     startAt: r.startAt,
-    endsAt: r.endsAt,
+    endsAt,
     priceAtStart: r.priceAtStart,
     priceAtEnd: r.priceAtEnd,
     outcome: r.outcome,
@@ -30,6 +33,7 @@ export async function GET() {
       resolvedRound: resolvedRound ? roundToJson(resolvedRound) : undefined,
       priceUp,
       priceDown,
+      serverNow: Date.now(),
       ok: true,
     })
   } catch (e) {
@@ -80,12 +84,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const priceUp = getPriceUp(round.pool)
+    const priceDown = getPriceDown(round.pool)
     return NextResponse.json({
       success: true,
       roundId: round.id,
       side,
       sharesReceived: result.sharesReceived,
       pricePerShare: result.pricePerShare,
+      priceUp,
+      priceDown,
+      pool: round.pool,
+      serverNow: Date.now(),
       ok: true,
     })
   } catch (e) {

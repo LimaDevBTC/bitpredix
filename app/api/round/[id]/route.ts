@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+const ROUND_DURATION_MS = 60 * 1000
+
 /** GET: obter uma rodada por ID (útil quando se perde o resolvedRound no fluxo) */
 export async function GET(
   _request: NextRequest,
@@ -21,7 +23,7 @@ export async function GET(
       round: {
         id: round.id,
         startAt: round.startAt,
-        endsAt: round.endsAt,
+        endsAt: round.startAt + ROUND_DURATION_MS,
         priceAtStart: round.priceAtStart,
         priceAtEnd: round.priceAtEnd,
         outcome: round.outcome,

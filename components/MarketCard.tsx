@@ -65,9 +65,11 @@ export function MarketCard() {
   const displayedRoundIdRef = useRef<string | null>(null)
   const hadNon50ForCurrentRoundRef = useRef(false)
   const lastAcceptedDeviationRef = useRef(0)
+  const [serverTimeSkew, setServerTimeSkew] = useState(0)
 
   const FETCH_TIMEOUT_MS = 20000
   const TRADING_CLOSE_SECONDS = 0
+  const ROUND_DURATION_SEC = 60
 
   useEffect(() => {
     if (round?.id) setSecondsLeft(999)
@@ -91,17 +93,16 @@ export function MarketCard() {
     }
   }, [round?.status, round?.id])
 
-  // Adiciona ponto ao histórico de preços
-  const addPricePoint = useCallback((round: Round, priceUp: number, priceDown: number) => {
-    if (!round || round.id !== lastRoundIdRef.current) return // Ignora se não for a rodada atual
-    if (round.status !== 'TRADING') return // Não adiciona pontos se rodada não está em trading
-    
-    const now = Date.now()
+  // Adiciona ponto ao histórico de preços. Use serverNow quando disponível (fetch) para evitar skew em produção.
+  const addPricePoint = useCallback((round: Round, priceUp: number, priceDown: number, serverNow?: number) => {
+    if (!round || round.id !== lastRoundIdRef.current) return
+    if (round.status !== 'TRADING') return
+
+    const now = typeof serverNow === 'number' ? serverNow : Date.now()
     const timeSinceStart = Math.floor((now - round.startAt) / 1000)
-    
-    // Não adiciona pontos após o fim da rodada
-    if (timeSinceStart >= 60) return
-    
+
+    if (timeSinceStart < 0 || timeSinceStart >= ROUND_DURATION_SEC) return
+
     setPriceHistory((prev) => {
       // Garante que estamos trabalhando com dados da rodada atual
       if (prev.length === 0 || prev[0].time !== 0) {
@@ -145,11 +146,14 @@ export function MarketCard() {
         }
 
         setRound(data.round)
+        if (typeof data.serverNow === 'number') {
+          setServerTimeSkew(data.serverNow - Date.now())
+        }
         if (!skipPrices) {
           setPriceUp(pu)
           setPriceDown(pd)
           if (data.round && data.priceUp !== undefined && data.priceDown !== undefined) {
-            addPricePoint(data.round, pu, pd)
+            addPricePoint(data.round, pu, pd, data.serverNow)
           }
           if (!incomingIs50) hadNon50ForCurrentRoundRef.current = true
           lastAcceptedDeviationRef.current = Math.max(lastAcceptedDeviationRef.current, incomingDeviation)
@@ -216,8 +220,8 @@ export function MarketCard() {
       setError(`Min. $${MIN_AMOUNT_USD.toFixed(2)} to buy shares`)
       return
     }
-    // Verificação dupla: frontend (secondsLeft) e tempo real (endsAt)
-    if (round && (Date.now() >= round.endsAt - TRADING_CLOSE_SECONDS * 1000)) {
+    const effectiveNow = Date.now() + serverTimeSkew
+    if (round && (effectiveNow >= round.endsAt - TRADING_CLOSE_SECONDS * 1000)) {
       setError('Trading has closed for this round.')
       return
     }
@@ -239,6 +243,19 @@ export function MarketCard() {
         saveTrade({ roundId: data.roundId, side, shares: data.sharesReceived, amountUsd: v })
         setLastTrade({ side, shares: data.sharesReceived, price: data.pricePerShare })
         setAmount('')
+
+        if (typeof data.priceUp === 'number' && typeof data.priceDown === 'number') {
+          setPriceUp(data.priceUp)
+          setPriceDown(data.priceDown)
+          const dev = Math.abs(data.priceUp - 0.5)
+          lastAcceptedDeviationRef.current = Math.max(lastAcceptedDeviationRef.current, dev)
+        }
+        if (data.pool && round?.id === data.roundId) {
+          setRound((prev) => (prev && prev.id === data.roundId ? { ...prev, pool: data.pool } : prev))
+        }
+        if (round && typeof data.priceUp === 'number' && typeof data.priceDown === 'number') {
+          addPricePoint(round, data.priceUp, data.priceDown, data.serverNow)
+        }
         
         if (lastTradeTimeoutRef.current) {
           clearTimeout(lastTradeTimeoutRef.current)
@@ -347,6 +364,7 @@ export function MarketCard() {
               {isTradingPhase && round ? (
                 <Countdown
                   endsAt={round.endsAt}
+                  serverTimeSkew={serverTimeSkew}
                   onEnd={onCountdownEnd}
                   onTick={(l) => setSecondsLeft(l)}
                   className="text-lg sm:text-3xl font-bold text-amber-400 leading-none tabular-nums"
@@ -443,6 +461,7 @@ export function MarketCard() {
                   data={priceHistory}
                   roundStartAt={round.startAt}
                   roundEndsAt={round.endsAt}
+                  serverTimeSkew={serverTimeSkew}
                 />
               </div>
             )}
