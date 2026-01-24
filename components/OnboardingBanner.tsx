@@ -9,7 +9,7 @@ export function OnboardingBanner() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (!localStorage.getItem(KEY)) setVisible(true)
+    queueMicrotask(() => { if (!localStorage.getItem(KEY)) setVisible(true) })
   }, [])
 
   const dismiss = () => {

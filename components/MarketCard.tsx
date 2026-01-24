@@ -117,7 +117,7 @@ export function MarketCard() {
     })
   }, [])
 
-  const fetchRound = async () => {
+  const fetchRound = useCallback(async () => {
     const ctrl = new AbortController()
     const to = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
     try {
@@ -130,7 +130,6 @@ export function MarketCard() {
         setError(null)
         setResolving(false)
         
-        // Adiciona ponto ao histórico de preços
         if (data.round && data.priceUp !== undefined && data.priceDown !== undefined) {
           addPricePoint(data.round, data.priceUp, data.priceDown)
         }
@@ -157,7 +156,7 @@ export function MarketCard() {
       clearTimeout(to)
       setLoading(false)
     }
-  }
+  }, [addPricePoint])
 
   useEffect(() => {
     fetchRound()
@@ -168,7 +167,7 @@ export function MarketCard() {
         clearTimeout(lastTradeTimeoutRef.current)
       }
     }
-  }, [])
+  }, [fetchRound])
 
   const onCountdownEnd = () => {
     if (!round) return

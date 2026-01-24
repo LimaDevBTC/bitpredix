@@ -59,6 +59,26 @@ const PulsingDot = ({ cx, cy, fill, isLast }: { cx?: number; cy?: number; fill?:
   )
 }
 
+const formatChartTime = (value: number) => `${value}s`
+const formatChartPercent = (value: number) => `${value.toFixed(1)}%`
+
+function ChartTooltip({ active, payload }: { active?: boolean; payload?: unknown }) {
+  const p = Array.isArray(payload) ? payload as Array<{ name: string; value: number; color: string; payload?: { time?: number } }> : []
+  if (!active || !p.length) return null
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 shadow-xl backdrop-blur-sm">
+      <p className="text-xs text-zinc-400 mb-2">
+        {p[0]?.payload?.time !== undefined ? formatChartTime(p[0].payload.time) : ''}
+      </p>
+      {p.map((entry, index) => (
+        <p key={index} className="text-sm font-medium" style={{ color: entry.color }}>
+          {entry.name}: {formatChartPercent(entry.value)}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 export function PriceChart({ data, roundStartAt, roundEndsAt }: PriceChartProps) {
   const [currentTime, setCurrentTime] = useState(0)
   
@@ -162,35 +182,6 @@ export function PriceChart({ data, roundStartAt, roundEndsAt }: PriceChartProps)
     return <PulsingDot cx={cx} cy={cy} fill={color} isLast={isLast} />
   }
   
-  // Formata o tempo para exibição (segundos)
-  const formatTime = (value: number) => {
-    return `${value}s`
-  }
-
-  // Formata a porcentagem
-  const formatPercent = (value: number) => {
-    return `${value.toFixed(1)}%`
-  }
-
-  // Tooltip customizado
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 shadow-xl backdrop-blur-sm">
-          <p className="text-xs text-zinc-400 mb-2">
-            {payload[0]?.payload?.time !== undefined ? `${formatTime(payload[0].payload.time)}` : ''}
-          </p>
-          {payload.map((entry: any, index: number) => (
-            <p key={index} className="text-sm font-medium" style={{ color: entry.color }}>
-              {entry.name}: {formatPercent(entry.value)}
-            </p>
-          ))}
-        </div>
-      )
-    }
-    return null
-  }
-
   return (
     <div className="w-full h-64 sm:h-80 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
       <ResponsiveContainer width="100%" height="100%">
@@ -203,19 +194,19 @@ export function PriceChart({ data, roundStartAt, roundEndsAt }: PriceChartProps)
             dataKey="time"
             type="number"
             domain={[0, maxTime]}
-            tickFormatter={formatTime}
+            tickFormatter={formatChartTime}
             stroke="#71717a"
             style={{ fontSize: '11px' }}
             tick={{ fill: '#71717a' }}
           />
           <YAxis
             domain={[0, 100]}
-            tickFormatter={formatPercent}
+            tickFormatter={formatChartPercent}
             stroke="#71717a"
             style={{ fontSize: '11px' }}
             tick={{ fill: '#71717a' }}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={ChartTooltip} />
           <Legend
             wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}
             iconType="line"

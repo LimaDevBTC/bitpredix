@@ -36,8 +36,8 @@ Dark mode premium para o prediction market. Uso consistente de cores, tipografia
 
 ## Tipografia
 
-- **Sans:** Outfit (Google Fonts), fallback `system-ui`, `sans-serif`
-- **Mono:** JetBrains Mono, Fira Code — preços, IDs, valores
+- **Sans:** Outfit via `next/font/google` (`--font-sans`), fallback `system-ui`, `sans-serif`
+- **Mono:** JetBrains Mono via `next/font/google` (`--font-mono`) — preços, IDs, valores
 
 Tamanhos: `text-xs` a `text-4xl`. Títulos em `font-semibold` / `font-bold`.
 

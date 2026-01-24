@@ -25,7 +25,7 @@ Abre [http://localhost:3000](http://localhost:3000).
 
 ## Stack
 
-- **Next.js 14** (App Router)
+- **Next.js 16** (App Router, Turbopack)
 - **TypeScript**
 - **Tailwind CSS**
 - Preço BTC: **Binance** (principal), **CoinGecko** (fallback)

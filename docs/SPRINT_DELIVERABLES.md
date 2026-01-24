@@ -99,3 +99,4 @@ Ver `docs/GITHUB_PROJECTS.md` para configurar o quadro.
 - **Stack:** Stacks, USDCx, Clarity — `docs/TOKEN_ARCHITECTURE.md`, `docs/FUNDS_ARCHITECTURE.md`.
 - **IDs de rodada:** `#YYYYMMDDHHMM` (ex.: `#202601231808`).
 - **Versão:** Beta 0.0.1 (footer do site).
+- **Next.js:** 16.x (Turbopack). React 19.

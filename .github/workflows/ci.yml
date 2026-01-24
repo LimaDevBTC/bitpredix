@@ -1,6 +1,6 @@
 # CI — Bitpredix
 # Roda em todo push e PR para main.
-# Atende: "Testes passando" + "Código no GitHub" (contrato Sprint 1).
+# Atende: "Testes passando" + "Código no GitHub" (Sprint 1).
 
 name: CI
 

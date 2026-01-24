@@ -11,7 +11,7 @@ export function MyLastResults() {
   const [results, setResults] = useState<ReturnType<typeof getMyResults>>([])
 
   useEffect(() => {
-    setResults(getMyResults())
+    queueMicrotask(() => setResults(getMyResults()))
   }, [])
 
   useEffect(() => {

@@ -16,14 +16,14 @@ html {
 }
 
 body {
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   background-color: var(--bg);
   color: var(--fg);
   min-height: 100vh;
 }
 
 .font-mono {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono), ui-monospace, monospace;
 }
 
 /* Gradiente sutil de fundo */
