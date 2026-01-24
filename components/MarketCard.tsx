@@ -64,9 +64,10 @@ export function MarketCard() {
   const lastTradeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const displayedRoundIdRef = useRef<string | null>(null)
   const hadNon50ForCurrentRoundRef = useRef(false)
+  const lastAcceptedDeviationRef = useRef(0)
 
   const FETCH_TIMEOUT_MS = 20000
-  const TRADING_CLOSE_SECONDS = 5
+  const TRADING_CLOSE_SECONDS = 0
 
   useEffect(() => {
     if (round?.id) setSecondsLeft(999)
@@ -128,24 +129,30 @@ export function MarketCard() {
       if (data.ok) {
         const roundId = data.round?.id ?? null
         const sameRound = roundId != null && roundId === displayedRoundIdRef.current
-        const incomingIs50 =
-          typeof data.priceUp === 'number' && typeof data.priceDown === 'number' &&
-          Math.abs(data.priceUp - 0.5) < 0.01 && Math.abs(data.priceDown - 0.5) < 0.01
-        const skipPrices = sameRound && incomingIs50 && hadNon50ForCurrentRoundRef.current
+        const pu = typeof data.priceUp === 'number' ? data.priceUp : 0.5
+        const pd = typeof data.priceDown === 'number' ? data.priceDown : 0.5
+        const incomingDeviation = Math.abs(pu - 0.5)
+        const incomingIs50 = incomingDeviation < 0.01
+        const movesToward50 = sameRound && incomingDeviation < lastAcceptedDeviationRef.current
+        const skipPrices =
+          sameRound &&
+          (incomingIs50 ? hadNon50ForCurrentRoundRef.current : movesToward50)
 
         if (roundId != null && roundId !== displayedRoundIdRef.current) {
           displayedRoundIdRef.current = roundId
           hadNon50ForCurrentRoundRef.current = false
+          lastAcceptedDeviationRef.current = 0
         }
 
         setRound(data.round)
         if (!skipPrices) {
-          setPriceUp(data.priceUp ?? 0.5)
-          setPriceDown(data.priceDown ?? 0.5)
+          setPriceUp(pu)
+          setPriceDown(pd)
           if (data.round && data.priceUp !== undefined && data.priceDown !== undefined) {
-            addPricePoint(data.round, data.priceUp, data.priceDown)
+            addPricePoint(data.round, pu, pd)
           }
           if (!incomingIs50) hadNon50ForCurrentRoundRef.current = true
+          lastAcceptedDeviationRef.current = Math.max(lastAcceptedDeviationRef.current, incomingDeviation)
         }
         setError(null)
         setResolving(false)
@@ -270,7 +277,7 @@ export function MarketCard() {
   }
 
   const MIN_AMOUNT_USD = 0.5
-  const PRESETS = [1, 5, 10, 50, 100] as const
+  const PRESETS = [5, 10, 50, 100] as const
   const MAX_AMOUNT = 10000 // Valor máximo para o botão MAX
 
   const amountNum = parseFloat(amount)
@@ -517,7 +524,7 @@ export function MarketCard() {
                     ) : (
                       <div className="flex items-center justify-center min-h-[8rem]">
                         <p className="text-center text-amber-400/90 text-sm">
-                          Trading closed. Round ends in {secondsLeft}s.
+                          {secondsLeft === 0 ? 'Round ending…' : `Trading closed. Round ends in ${secondsLeft}s.`}
                         </p>
                       </div>
                     )}
