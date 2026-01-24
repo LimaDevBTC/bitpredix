@@ -157,8 +157,12 @@ export function MarketCard() {
         setError(null)
         setResolving(false)
 
+        // Só mostra modal de resolução quando *nós* encerramos o round (onCountdownEnd).
+        // Evita "fechamento do nada" quando o poll traz resolvedRound de outra instância no meio da rodada.
         if (data.resolvedRound) {
-          setResolutionData(data.resolvedRound)
+          if (resolvingRoundIdRef.current != null && data.resolvedRound.id === resolvingRoundIdRef.current) {
+            setResolutionData(data.resolvedRound)
+          }
           resolvingRoundIdRef.current = null
         } else if (resolvingRoundIdRef.current && data.round?.id !== resolvingRoundIdRef.current) {
           const rRes = await fetch(`/api/round/${resolvingRoundIdRef.current}`)
