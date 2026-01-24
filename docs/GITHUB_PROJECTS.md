@@ -1,12 +1,12 @@
 # GitHub Projects — Acompanhar o Bitpredix sem precisar de código
 
-O **GitHub Projects** é um quadro (tipo Kanban) onde você vê tarefas, sprints e progresso. Ideal para coordenadores e investidores acompanharem o desenvolvimento sem precisar de código.
+O **GitHub Projects** é um quadro (tipo Kanban) onde você vê tarefas, sprints e progresso. Ideal para a equipe acompanhar o desenvolvimento sem precisar de código.
 
 ---
 
 ## 1. Criar o Project
 
-1. Abra o repositório: **https://github.com/LimaDevBTC/bitpredix**
+1. Abra o repositório do projeto no GitHub.
 2. Clique na aba **Projects** (ou em **Projects** no menu do repo).
 3. **Create a project** → escolha **Board** (quadro com colunas).
 4. Nome sugerido: **Bitpredix MVP**.

@@ -9,7 +9,7 @@ Ver `docs/GITHUB_PROJECTS.md` para configurar o quadro.
 
 | Item | Status | Observações |
 |------|--------|-------------|
-| Setup do repositório | ✅ Feito | GitHub: LimaDevBTC/bitpredix |
+| Setup do repositório | ✅ Feito | Repositório no GitHub |
 | CI/CD e ambiente | ✅ Feito | GitHub Actions: lint + build (`.github/workflows/ci.yml`) |
 | Design system (dark mode premium) | ✅ Feito | `docs/DESIGN_SYSTEM.md` + Tailwind, dark mode |
 | Estrutura base do smart contract | ✅ Feito | `contracts/bitpredix.clar` + `contracts/README.md` |
