@@ -1,10 +1,20 @@
 # GitHub Projects — Acompanhar o Bitpredix sem precisar de código
 
-O **GitHub Projects** é um quadro (tipo Kanban) onde você vê tarefas, sprints e progresso. Ideal para a equipe acompanhar o desenvolvimento sem precisar de código.
+O **GitHub Projects** é um quadro (tipo Kanban) onde você vê tarefas, sprints e progresso. Ideal para a equipe e para o investidor acompanharem o desenvolvimento sem precisar de código.
 
 ---
 
-## 1. Criar o Project
+## ✅ Quadro já configurado
+
+- **Project:** [Bitpredix MVP](https://github.com/users/LimaDevBTC/projects/2)
+- **Issues:** Sprint 1 (5) e Sprint 2 (7) criadas, todas no Project.
+- **Status:** Sprint 1 em **Done**; Sprint 2 em **Todo**.
+
+O investidor pode acessar o link acima para ver o quadro, filtrar por `sprint-1` / `sprint-2` e acompanhar o andamento.
+
+---
+
+## 1. Criar o Project (se precisar de outro no futuro)
 
 1. Abra o repositório do projeto no GitHub.
 2. Clique na aba **Projects** (ou em **Projects** no menu do repo).

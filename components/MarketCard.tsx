@@ -254,7 +254,7 @@ export function MarketCard() {
   }
 
   const MIN_AMOUNT_USD = 0.5
-  const PRESETS = [1, 5, 10, 25, 50, 100, 500] as const
+  const PRESETS = [1, 5, 10, 50, 100] as const
   const MAX_AMOUNT = 10000 // Valor máximo para o botão MAX
 
   const amountNum = parseFloat(amount)
@@ -288,46 +288,44 @@ export function MarketCard() {
       )}
 
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 bg-grid-pattern overflow-hidden">
-        {/* Header profissional estilo Polymarket */}
-        <div className="px-4 sm:px-6 py-4 border-b border-zinc-800">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-            {/* Coluna esquerda: Título e informações da rodada */}
-            <div className="space-y-1.5">
-              <h2 className="text-base font-semibold text-zinc-200 leading-tight">BTC next minute</h2>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                <span className="font-mono text-zinc-400">Round {round ? formatRoundId(round.startAt) : '—'}</span>
-                <span className="text-zinc-600">·</span>
-                <span>
-                  Open: <span className="font-mono text-bitcoin">${round?.priceAtStart?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}</span>
-                </span>
+        {/* Header — mesmo layout 3 colunas em mobile e desktop */}
+        <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-zinc-800">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 items-start">
+            {/* Col 1: Título + Round + Recent */}
+            <div className="min-w-0 space-y-1 sm:space-y-1.5">
+              <h2 className="text-sm sm:text-base font-semibold text-zinc-200 leading-tight">BTC next minute</h2>
+              <div className="text-[11px] sm:text-xs text-zinc-500">
+                <span className="font-mono text-zinc-400">{round ? formatRoundId(round.startAt) : '—'}</span>
               </div>
-              {/* Histórico de rounds resolvidos - integrado elegantemente */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-zinc-600 uppercase tracking-wider">Recent:</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-[9px] sm:text-[10px] text-zinc-600 uppercase tracking-wider shrink-0">Recent:</span>
                 <RoundHistory />
               </div>
             </div>
 
-            {/* Coluna central: Preço BTC */}
-            <div className="flex flex-col items-center sm:items-start space-y-0.5">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">BTC Price</p>
-              <div className="text-2xl sm:text-3xl font-bold text-bitcoin leading-none">
+            {/* Col 2: BTC Price + Open */}
+            <div className="flex flex-col items-center justify-start min-w-0 gap-0.5">
+              <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">BTC Price</p>
+              <div className="text-lg sm:text-3xl font-bold text-bitcoin leading-none font-mono">
                 <BtcPrice />
               </div>
+              <p className="text-[10px] sm:text-xs text-zinc-500 mt-0.5">
+                Open: <span className="font-mono text-bitcoin">${round?.priceAtStart?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}</span>
+              </p>
             </div>
 
-            {/* Coluna direita: Countdown */}
-            <div className="flex flex-col items-end space-y-0.5">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Time Left</p>
+            {/* Col 3: Time Left */}
+            <div className="flex flex-col items-end justify-start min-w-0 gap-0.5">
+              <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Time Left</p>
               {isTradingPhase && round ? (
                 <Countdown
                   endsAt={round.endsAt}
                   onEnd={onCountdownEnd}
                   onTick={(l) => setSecondsLeft(l)}
-                  className="text-2xl sm:text-3xl font-bold text-amber-400 leading-none"
+                  className="text-lg sm:text-3xl font-bold text-amber-400 leading-none tabular-nums"
                 />
               ) : (
-                <div className="text-2xl sm:text-3xl font-bold text-zinc-600 leading-none">
+                <div className="text-lg sm:text-3xl font-bold text-zinc-600 leading-none">
                   <span className="font-mono">—</span>
                   <span className="block text-xs mt-0.5 h-4 text-transparent" aria-hidden="true">&#8203;</span>
                 </div>
