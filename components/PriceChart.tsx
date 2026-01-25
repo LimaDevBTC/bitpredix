@@ -187,7 +187,7 @@ export function PriceChart({ data, roundStartAt, roundEndsAt, serverTimeSkew = 0
   }
   
   return (
-    <div className="w-full h-64 sm:h-80 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="w-full h-56 sm:h-64 lg:h-60 xl:h-64 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}

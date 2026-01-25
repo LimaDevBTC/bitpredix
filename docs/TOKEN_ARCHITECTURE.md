@@ -337,13 +337,10 @@ function createNewRound(timestamp: number, priceAtStart: number) {
     endsAt: timestamp + 60000,
     priceAtStart,
     status: 'TRADING',
-    pool: {
-      reserveUp: 2_000,     // Liquidez inicial 2k (AMM mais responsivo)
-      reserveDown: 2_000,
-      k: 4_000_000
-    }
+    pool: { qUp: 0, qDown: 0, volumeTraded: 0 },
   }
 }
+// LMSR: b = B0 + volumeTraded; preços e impacto dependem da liquidez
 ```
 
 **Importante:** Cada rodada é **completamente independente**. Não há carry-over de liquidez entre rodadas.
@@ -356,7 +353,7 @@ function createNewRound(timestamp: number, priceAtStart: number) {
 ┌─────────────────────────────────────────────────┐
 │ Rodada N (round-1737654000)                    │
 ├─────────────────────────────────────────────────┤
-│ Pool: 2k UP / 2k DOWN (50/50)                  │
+│ Pool: LMSR (qUp=0, qDown=0, 50/50)             │
 │ Usuário compra: $50 → recebe 37.5 UP tokens    │
 │ Tokens: {roundId: "round-1737654000", side: UP}│
 └─────────────────────────────────────────────────┘
@@ -377,7 +374,7 @@ function createNewRound(timestamp: number, priceAtStart: number) {
 ┌─────────────────────────────────────────────────┐
 │ Rodada N+1 (round-1737654060)                   │
 ├─────────────────────────────────────────────────┤
-│ Pool: 2k UP / 2k DOWN (50/50) NOVO             │
+│ Pool: LMSR (qUp=0, qDown=0, 50/50) NOVO        │
 │ Tokens: {roundId: "round-1737654060", ...}     │
 │ ↑ IDs diferentes = sem confusão                 │
 └─────────────────────────────────────────────────┘

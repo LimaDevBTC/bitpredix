@@ -15,26 +15,28 @@
 
 ## 2. AMM (Automated Market Maker)
 
-### 2.1 Modelo atual
+### 2.1 Modelo atual: LMSR
 
-- **Fórmula:** Constant product `k = reserveUp * reserveDown`.
-- **Preços:** `priceUp = reserveDown / (reserveUp + reserveDown)`, `priceDown = 1 - priceUp`.
-- **Compras:** Ao comprar UP, o pagamento entra em `reserveDown` e as shares saem de `reserveUp`; idem invertido para DOWN.
+- **LMSR** (Logarithmic Market Scoring Rule): usado em prediction markets (Kalshi, Gnosis). O impacto de cada trade **depende explicitamente da liquidez**.
+- **Estado do pool:** `qUp`, `qDown` (net shares vendidas), `volumeTraded` (USD acumulado no round).
+- **Liquidez:** `b = B0 + volumeTraded`. Com mais volume, o **mesmo $10k move menos** o preço.
+- **Preços:** `priceUp = exp(qUp/b) / (exp(qUp/b) + exp(qDown/b))`, `priceDown = 1 - priceUp`.
+- **Compras:** Dado `amountUsd`, resolve-se (busca binária) `Δq` tal que o custo LMSR da compra = `amountUsd`; o usuário recebe `Δq` shares e `volumeTraded` aumenta.
 
 ### 2.2 Ajustes feitos
 
 | Item | Antes | Depois |
 |------|--------|--------|
-| Liquidez inicial | 10_000 por lado | **2_000** por lado |
-| Responsividade | $10k em 90/10 mal mexia a linha | Com 2k, $10k move bem o preço (ex.: 90% → ~98%) |
-| Resposta ao trade | Só via GET (poll); outra instância → preço “travado” | POST retorna `priceUp`, `priceDown`, `pool`, `serverNow`; UI aplica na hora |
+| Modelo | Constant product (reserves, k fixo) | **LMSR** (b = B0 + volumeTraded) |
+| Impacto vs liquidez | $10k impactava igual com 10k ou 100k de liquidez | Mesmo $10k impacta **menos** quanto maior `volumeTraded` |
+| Resposta ao trade | Só via GET (poll) | POST retorna `priceUp`, `priceDown`, `pool`, `serverNow`; UI aplica na hora |
 
 ### 2.3 Limitações conhecidas
 
 1. **Estado em memória:** Em Vercel (serverless), cada instância tem seu próprio `round`/pool. Um GET pode vir de instância que não executou o trade → já mitigado com atualização otimista a partir do POST.
 2. **Sem venda:** Só há compra de UP/DOWN. Não existe “sell” ou liquidação antecipada.
 3. **Sem fees:** O AMM não aplica spread/fee (planejado para versão futura).
-4. **estimateShares:** O preview “You get ~X UP/DOWN” usa o mesmo `buyShares` (client-side). Pode divergir se o pool mudar entre o preview e o trade.
+4. **estimateShares:** O preview “You get ~X UP/DOWN” usa `amm.estimateShares` (LMSR). Pode divergir se o pool mudar entre o preview e o trade.
 
 ### 2.4 Sugestões futuras
 

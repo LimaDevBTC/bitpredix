@@ -7,6 +7,8 @@ import { ResolutionModal } from './ResolutionModal'
 import { PriceChart, type PriceDataPoint } from './PriceChart'
 import { RoundHistory } from './RoundHistory'
 import { saveTrade, getPositionForRound } from '@/lib/positions'
+import { estimateShares as ammEstimateShares } from '@/lib/amm'
+import type { PoolState } from '@/lib/types'
 
 type Side = 'UP' | 'DOWN'
 
@@ -18,7 +20,7 @@ interface Round {
   priceAtEnd?: number
   outcome?: Side
   status: string
-  pool: { reserveUp: number; reserveDown: number; k?: number }
+  pool: PoolState
 }
 
 function formatRoundId(ts: number) {
@@ -30,20 +32,6 @@ function formatRoundId(ts: number) {
   const hour = String(d.getHours()).padStart(2, '0')
   const minute = String(d.getMinutes()).padStart(2, '0')
   return `#${year}${month}${day}${hour}${minute}`
-}
-
-/** Estimativa de shares (fórmula AMM, client-side). */
-function estimateShares(pool: Round['pool'], side: Side, amountUsd: number, priceUp: number, priceDown: number): number {
-  const k = pool.k ?? pool.reserveUp * pool.reserveDown
-  const reserveIn = side === 'UP' ? pool.reserveDown : pool.reserveUp
-  const reserveOut = side === 'UP' ? pool.reserveUp : pool.reserveDown
-  const reserveInNew = reserveIn + amountUsd
-  const reserveOutNew = k / reserveInNew
-  const shares = reserveOut - reserveOutNew
-  if (shares <= 0 || !isFinite(shares)) {
-    return amountUsd / (side === 'UP' ? priceUp : priceDown)
-  }
-  return shares
 }
 
 export function MarketCard() {
@@ -66,6 +54,8 @@ export function MarketCard() {
   const hadNon50ForCurrentRoundRef = useRef(false)
   const lastAcceptedDeviationRef = useRef(0)
   const [serverTimeSkew, setServerTimeSkew] = useState(0)
+  /** Open fixo: priceAtStart, startAt, endsAt da primeira vez que vimos esta rodada. Nunca sobrescreve. */
+  const fixedOpenRef = useRef<{ roundId: string; priceAtStart: number; startAt: number; endsAt: number } | null>(null)
 
   const FETCH_TIMEOUT_MS = 20000
   const TRADING_CLOSE_SECONDS = 0
@@ -143,17 +133,34 @@ export function MarketCard() {
           displayedRoundIdRef.current = roundId
           hadNon50ForCurrentRoundRef.current = false
           lastAcceptedDeviationRef.current = 0
+          fixedOpenRef.current = {
+            roundId,
+            priceAtStart: data.round.priceAtStart,
+            startAt: data.round.startAt,
+            endsAt: data.round.endsAt,
+          }
         }
 
-        setRound(data.round)
+        const roundToSet = (() => {
+          const r = data.round
+          if (!r || !fixedOpenRef.current || fixedOpenRef.current.roundId !== r.id) return r
+          return {
+            ...r,
+            priceAtStart: fixedOpenRef.current.priceAtStart,
+            startAt: fixedOpenRef.current.startAt,
+            endsAt: fixedOpenRef.current.endsAt,
+          }
+        })()
+
+        setRound(roundToSet)
         if (typeof data.serverNow === 'number') {
           setServerTimeSkew(data.serverNow - Date.now())
         }
         if (!skipPrices) {
           setPriceUp(pu)
           setPriceDown(pd)
-          if (data.round && data.priceUp !== undefined && data.priceDown !== undefined) {
-            addPricePoint(data.round, pu, pd, data.serverNow)
+          if (roundToSet && data.priceUp !== undefined && data.priceDown !== undefined) {
+            addPricePoint(roundToSet, pu, pd, data.serverNow)
           }
           if (!incomingIs50) hadNon50ForCurrentRoundRef.current = true
           lastAcceptedDeviationRef.current = Math.max(lastAcceptedDeviationRef.current, incomingDeviation)
@@ -303,8 +310,8 @@ export function MarketCard() {
 
   const amountNum = parseFloat(amount)
   const hasValidAmount = !isNaN(amountNum) && amountNum > 0 && round?.pool
-  const estUp = hasValidAmount ? estimateShares(round!.pool, 'UP', amountNum, priceUp, priceDown) : 0
-  const estDown = hasValidAmount ? estimateShares(round!.pool, 'DOWN', amountNum, priceUp, priceDown) : 0
+  const estUp = hasValidAmount ? ammEstimateShares('UP', amountNum, round!.pool) : 0
+  const estDown = hasValidAmount ? ammEstimateShares('DOWN', amountNum, round!.pool) : 0
   const pos = round ? getPositionForRound(round.id) : null
   const belowMin = amountNum > 0 && amountNum < MIN_AMOUNT_USD
   const meetsMin = amountNum >= MIN_AMOUNT_USD
@@ -452,38 +459,40 @@ export function MarketCard() {
             </div>
           </div>
 
-          {/* Conteúdo principal - sempre visível, mesmo durante resolução */}
-          <div className="space-y-4">
-            {/* Gráfico de preços - sempre visível quando há dados da rodada atual */}
-            {round && priceHistory.length > 0 && lastRoundIdRef.current === round.id && (
-              <div className="mb-4">
+          {/* Conteúdo principal: em desktop (lg+) gráfico | UP/DOWN+amount lado a lado */}
+          <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+            {/* Coluna esquerda: gráfico */}
+            <div className="lg:min-h-[16rem]">
+              {round && priceHistory.length > 0 && lastRoundIdRef.current === round.id && (
                 <PriceChart
                   data={priceHistory}
                   roundStartAt={round.startAt}
                   roundEndsAt={round.endsAt}
                   serverTimeSkew={serverTimeSkew}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+            {/* Coluna direita: botões UP/DOWN + amount */}
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-3">
                 <button
                   onClick={() => buy('UP')}
                   disabled={!canTrade || trading || resolving}
-                  className="group relative flex flex-col items-center justify-center rounded-xl border-2 border-up/50 bg-up/5 px-4 py-6 transition hover:border-up hover:bg-up/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-up/50 disabled:hover:bg-up/5"
+                  className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-up/50 bg-up/5 px-3 py-3 sm:py-4 lg:py-3 transition hover:border-up hover:bg-up/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-up/50 disabled:hover:bg-up/5"
                 >
-                  <span className="text-2xl sm:text-3xl font-mono font-bold text-up">UP</span>
-                  <span className="text-sm text-zinc-500 mt-1">Price goes up</span>
-                  <span className="font-mono text-lg font-semibold text-up mt-2">{(priceUp * 100).toFixed(1)}¢</span>
+                  <span className="text-lg sm:text-xl lg:text-xl font-mono font-bold text-up">UP</span>
+                  <span className="text-xs text-zinc-500 mt-0.5">Price goes up</span>
+                  <span className="font-mono text-sm lg:text-base font-semibold text-up mt-1.5">{(priceUp * 100).toFixed(1)}¢</span>
                 </button>
                 <button
                   onClick={() => buy('DOWN')}
                   disabled={!canTrade || trading || resolving}
-                  className="group relative flex flex-col items-center justify-center rounded-xl border-2 border-down/50 bg-down/5 px-4 py-6 transition hover:border-down hover:bg-down/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-down/50 disabled:hover:bg-down/5"
+                  className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-down/50 bg-down/5 px-3 py-3 sm:py-4 lg:py-3 transition hover:border-down hover:bg-down/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-down/50 disabled:hover:bg-down/5"
                 >
-                  <span className="text-2xl sm:text-3xl font-mono font-bold text-down">DOWN</span>
-                  <span className="text-sm text-zinc-500 mt-1">Price goes down</span>
-                  <span className="font-mono text-lg font-semibold text-down mt-2">{(priceDown * 100).toFixed(1)}¢</span>
+                  <span className="text-lg sm:text-xl lg:text-xl font-mono font-bold text-down">DOWN</span>
+                  <span className="text-xs text-zinc-500 mt-0.5">Price goes down</span>
+                  <span className="font-mono text-sm lg:text-base font-semibold text-down mt-1.5">{(priceDown * 100).toFixed(1)}¢</span>
                 </button>
               </div>
 
@@ -567,6 +576,7 @@ export function MarketCard() {
                 )}
             </div>
           </div>
+        </div>
         </div>
       </div>
     </>

@@ -6,11 +6,11 @@ export type MarketSide = 'UP' | 'DOWN'
 
 export type RoundStatus = 'TRADING' | 'RESOLVING' | 'RESOLVED'
 
+/** Estado do pool LMSR. qUp/qDown = net shares vendidas; volumeTraded = USD acumulado no round. */
 export interface PoolState {
-  reserveUp: number
-  reserveDown: number
-  /** Constante k = reserveUp * reserveDown (constant product) */
-  k: number
+  qUp: number
+  qDown: number
+  volumeTraded: number
 }
 
 export interface Round {
