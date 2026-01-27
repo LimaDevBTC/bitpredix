@@ -63,3 +63,8 @@ input[type="number"] {
     opacity: 0;
   }
 }
+
+/* Esconde o rodapé/crédito que o script TradingView injeta no container */
+.tradingview-widget-container .tradingview-widget-copyright {
+  display: none !important;
+}

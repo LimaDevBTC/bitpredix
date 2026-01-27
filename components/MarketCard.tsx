@@ -16,6 +16,8 @@ interface Round {
   id: string
   startAt: number
   endsAt: number
+  /** Timestamp em que as apostas travam (10–14s antes do fim). Se ausente, usa endsAt. */
+  tradingClosesAt?: number
   priceAtStart: number
   priceAtEnd?: number
   outcome?: Side
@@ -58,7 +60,6 @@ export function MarketCard() {
   const fixedOpenRef = useRef<{ roundId: string; priceAtStart: number; startAt: number; endsAt: number } | null>(null)
 
   const FETCH_TIMEOUT_MS = 20000
-  const TRADING_CLOSE_SECONDS = 0
   const ROUND_DURATION_SEC = 60
 
   useEffect(() => {
@@ -228,7 +229,8 @@ export function MarketCard() {
       return
     }
     const effectiveNow = Date.now() + serverTimeSkew
-    if (round && (effectiveNow >= round.endsAt - TRADING_CLOSE_SECONDS * 1000)) {
+    const closesAt = round?.tradingClosesAt ?? round?.endsAt
+    if (round && closesAt != null && effectiveNow >= closesAt) {
       setError('Trading has closed for this round.')
       return
     }
@@ -317,7 +319,9 @@ export function MarketCard() {
   const meetsMin = amountNum >= MIN_AMOUNT_USD
 
   const isTradingPhase = round?.status === 'TRADING' && !resolving
-  const canTrade = isTradingPhase && secondsLeft > TRADING_CLOSE_SECONDS
+  const effectiveNow = Date.now() + serverTimeSkew
+  const closesAt = round?.tradingClosesAt ?? round?.endsAt
+  const canTrade = isTradingPhase && (closesAt != null && effectiveNow < closesAt)
 
   if (loading && !round) {
     return (
@@ -340,7 +344,7 @@ export function MarketCard() {
 
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 bg-grid-pattern overflow-hidden">
         {/* Header — mesmo layout 3 colunas em mobile e desktop */}
-        <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-zinc-800">
+        <div className="px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-zinc-800">
           <div className="grid grid-cols-3 gap-2 sm:gap-4 items-start">
             {/* Col 1: Título + Round + Recent */}
             <div className="min-w-0 space-y-1 sm:space-y-1.5">
@@ -386,9 +390,9 @@ export function MarketCard() {
           </div>
         </div>
 
-        <div className="p-4 sm:p-6">
-          {/* Espaço FIXO para mensagens - altura constante para evitar mudanças no layout */}
-          <div className="h-20 mb-4 flex items-stretch">
+        <div className="px-3 pt-3 pb-2 sm:p-6">
+          {/* Espaço FIXO para mensagens - altura reduzida em mobile para caber na tela */}
+          <div className="h-16 mb-3 flex items-stretch">
             <div className="w-full flex items-center">
               {error ? (
                 // Prioridade 1: Erro
@@ -460,7 +464,7 @@ export function MarketCard() {
           </div>
 
           {/* Conteúdo principal: em desktop (lg+) gráfico | UP/DOWN+amount lado a lado */}
-          <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+          <div className="space-y-3 sm:space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
             {/* Coluna esquerda: gráfico */}
             <div className="lg:min-h-[16rem]">
               {round && priceHistory.length > 0 && lastRoundIdRef.current === round.id && (
@@ -474,30 +478,30 @@ export function MarketCard() {
             </div>
 
             {/* Coluna direita: botões UP/DOWN + amount */}
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-3">
                 <button
                   onClick={() => buy('UP')}
                   disabled={!canTrade || trading || resolving}
-                  className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-up/50 bg-up/5 px-3 py-3 sm:py-4 lg:py-3 transition hover:border-up hover:bg-up/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-up/50 disabled:hover:bg-up/5"
+                  className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-up/50 bg-up/5 px-3 py-2 sm:py-3 lg:py-3 transition hover:border-up hover:bg-up/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-up/50 disabled:hover:bg-up/5"
                 >
-                  <span className="text-lg sm:text-xl lg:text-xl font-mono font-bold text-up">UP</span>
-                  <span className="text-xs text-zinc-500 mt-0.5">Price goes up</span>
-                  <span className="font-mono text-sm lg:text-base font-semibold text-up mt-1.5">{(priceUp * 100).toFixed(1)}¢</span>
+                  <span className="text-base sm:text-xl lg:text-xl font-mono font-bold text-up">UP</span>
+                  <span className="text-[11px] sm:text-xs text-zinc-500 mt-0">Price goes up</span>
+                  <span className="font-mono text-sm lg:text-base font-semibold text-up mt-0.5">{(priceUp * 100).toFixed(1)}¢</span>
                 </button>
                 <button
                   onClick={() => buy('DOWN')}
                   disabled={!canTrade || trading || resolving}
-                  className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-down/50 bg-down/5 px-3 py-3 sm:py-4 lg:py-3 transition hover:border-down hover:bg-down/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-down/50 disabled:hover:bg-down/5"
+                  className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-down/50 bg-down/5 px-3 py-2 sm:py-3 lg:py-3 transition hover:border-down hover:bg-down/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-down/50 disabled:hover:bg-down/5"
                 >
-                  <span className="text-lg sm:text-xl lg:text-xl font-mono font-bold text-down">DOWN</span>
-                  <span className="text-xs text-zinc-500 mt-0.5">Price goes down</span>
-                  <span className="font-mono text-sm lg:text-base font-semibold text-down mt-1.5">{(priceDown * 100).toFixed(1)}¢</span>
+                  <span className="text-base sm:text-xl lg:text-xl font-mono font-bold text-down">DOWN</span>
+                  <span className="text-[11px] sm:text-xs text-zinc-500 mt-0">Price goes down</span>
+                  <span className="font-mono text-sm lg:text-base font-semibold text-down mt-0.5">{(priceDown * 100).toFixed(1)}¢</span>
                 </button>
               </div>
 
             {/* Input de valor - sempre visível, desabilitado durante resolução */}
-            <div className="min-h-[8rem]">
+            <div>
               {isTradingPhase && !resolving ? (
                   <div className="space-y-2">
                     {canTrade ? (
@@ -542,7 +546,7 @@ export function MarketCard() {
                           />
                           <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
                         </div>
-                        <div className="min-h-[1.5rem]">
+                        <div className="min-h-[1.25rem]">
                           {belowMin && (
                             <p className="text-xs text-amber-400/90">Min. ${MIN_AMOUNT_USD.toFixed(2)} to buy shares</p>
                           )}
@@ -554,7 +558,7 @@ export function MarketCard() {
                         </div>
                       </>
                     ) : (
-                      <div className="flex items-center justify-center min-h-[8rem]">
+                      <div className="flex items-center justify-center min-h-[4.5rem] py-2">
                         <p className="text-center text-amber-400/90 text-sm">
                           {secondsLeft === 0 ? 'Round ending…' : `Trading closed. Round ends in ${secondsLeft}s.`}
                         </p>
@@ -562,15 +566,15 @@ export function MarketCard() {
                     )}
                   </div>
                 ) : resolving ? (
-                  <div className="flex items-center justify-center min-h-[8rem]">
+                  <div className="flex items-center justify-center min-h-[4.5rem] py-2">
                     <p className="text-center text-zinc-500 text-sm">Resolving round…</p>
                   </div>
                 ) : round?.status !== 'RESOLVED' ? (
-                  <div className="flex items-center justify-center min-h-[8rem]">
+                  <div className="flex items-center justify-center min-h-[4.5rem] py-2">
                     <p className="text-center text-zinc-500 text-sm">Waiting for next round…</p>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center min-h-[8rem]">
+                  <div className="flex items-center justify-center min-h-[4.5rem] py-2">
                     <p className="text-center text-zinc-500 text-sm">Round resolved. Next round starting soon…</p>
                   </div>
                 )}

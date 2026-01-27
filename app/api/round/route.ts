@@ -7,12 +7,13 @@ export const dynamic = 'force-dynamic'
 
 const ROUND_DURATION_MS = 60 * 1000
 
-function roundToJson(r: { id: string; startAt: number; endsAt: number; priceAtStart: number; priceAtEnd?: number; outcome?: string; status: string; pool: object }) {
+function roundToJson(r: { id: string; startAt: number; endsAt: number; tradingClosesAt?: number; priceAtStart: number; priceAtEnd?: number; outcome?: string; status: string; pool: object }) {
   const endsAt = r.startAt + ROUND_DURATION_MS
   return {
     id: r.id,
     startAt: r.startAt,
     endsAt,
+    tradingClosesAt: r.tradingClosesAt ?? endsAt,
     priceAtStart: r.priceAtStart,
     priceAtEnd: r.priceAtEnd,
     outcome: r.outcome,

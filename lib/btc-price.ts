@@ -1,6 +1,10 @@
 /**
- * Obtém o preço do Bitcoin em tempo real.
- * Múltiplas fontes + retries para maior resiliência em produção (serverless).
+ * Obtém o preço do Bitcoin em USD.
+ *
+ * Fonte primária: Bitstamp (BTC/USD), a mesma do gráfico TradingView BITSTAMP:BTCUSD,
+ * para manter um padrão único entre o preço exibido no app e o gráfico.
+ *
+ * Fallbacks: outras fontes caso a Bitstamp esteja indisponível.
  */
 
 const FETCH_TIMEOUT_MS = 6_000
@@ -10,6 +14,14 @@ const DEFAULT_HEADERS: HeadersInit = {
 }
 
 const SOURCES: { name: string; url: string; parse: (data: unknown) => number }[] = [
+  {
+    name: 'Bitstamp',
+    url: 'https://www.bitstamp.net/api/v2/ticker/btcusd/',
+    parse: (d) => {
+      const v = (d as { last?: string | number }).last
+      return typeof v === 'number' ? v : parseFloat(String(v ?? '0'))
+    },
+  },
   {
     name: 'Binance',
     url: 'https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT',

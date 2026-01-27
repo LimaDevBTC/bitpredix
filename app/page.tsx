@@ -1,14 +1,16 @@
+import Link from 'next/link'
 import { MarketCard } from '@/components/MarketCard'
+import { TradingViewBtcChart } from '@/components/TradingViewBtcChart'
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-950 bg-grid-pattern">
       <div className="w-full max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
         <header className="flex items-center justify-between mb-6 sm:mb-8">
-          <a href="/" className="font-bold text-xl sm:text-2xl tracking-tight">
+          <Link href="/" className="font-bold text-xl sm:text-2xl tracking-tight">
             <span className="text-bitcoin">Bit</span>
             <span className="text-zinc-100">predix</span>
-          </a>
+          </Link>
           <button
             type="button"
             className="px-4 py-2 rounded-lg bg-bitcoin/20 text-bitcoin border border-bitcoin/40 hover:bg-bitcoin/30 hover:border-bitcoin/60 font-medium text-sm transition-colors"
@@ -16,6 +18,12 @@ export default function Home() {
             Connect wallet
           </button>
         </header>
+
+        <section className="mb-4 sm:mb-6 rounded-2xl border border-zinc-800 bg-zinc-900/80 overflow-hidden">
+          <div className="h-[340px] sm:h-[400px] lg:h-[420px]">
+            <TradingViewBtcChart />
+          </div>
+        </section>
 
         <MarketCard />
 

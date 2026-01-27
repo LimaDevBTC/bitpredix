@@ -19,11 +19,13 @@ export async function GET(
     }
     const priceUp = getPriceUp(round.pool)
     const priceDown = getPriceDown(round.pool)
+    const endsAt = round.startAt + ROUND_DURATION_MS
     return NextResponse.json({
       round: {
         id: round.id,
         startAt: round.startAt,
-        endsAt: round.startAt + ROUND_DURATION_MS,
+        endsAt,
+        tradingClosesAt: round.tradingClosesAt ?? endsAt,
         priceAtStart: round.priceAtStart,
         priceAtEnd: round.priceAtEnd,
         outcome: round.outcome,

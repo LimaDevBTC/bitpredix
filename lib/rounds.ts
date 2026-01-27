@@ -17,6 +17,11 @@ function roundIdFromStart(startAt: number): string {
   return `round-${Math.floor(startAt / 1000)}`
 }
 
+/** Segundos antes do fim em que as apostas travam: aleatório entre 10 e 14 (inclusive). */
+function randomTradingCloseSeconds(): number {
+  return 10 + Math.floor(Math.random() * 5)
+}
+
 /** Cria uma nova rodada */
 export function createRound(startAt: number, priceAtStart: number): Round {
   const id = roundIdFromStart(startAt)
@@ -24,10 +29,13 @@ export function createRound(startAt: number, priceAtStart: number): Round {
     return rounds.get(id)!
   }
 
+  const endsAt = startAt + ROUND_DURATION_MS
+  const closeSeconds = randomTradingCloseSeconds()
   const round: Round = {
     id,
     startAt,
-    endsAt: startAt + ROUND_DURATION_MS,
+    endsAt,
+    tradingClosesAt: endsAt - closeSeconds * 1000,
     priceAtStart,
     status: 'TRADING',
     pool: createInitialPool(),
@@ -92,7 +100,8 @@ export function executeTrade(
   const round = rounds.get(roundId)
   if (!round) return { success: false, error: 'Round not found' }
   if (round.status !== 'TRADING') return { success: false, error: 'Trading has closed for this round.' }
-  if (Date.now() >= round.endsAt) return { success: false, error: 'Trading has closed for this round.' }
+  const closesAt = round.tradingClosesAt ?? round.endsAt
+  if (Date.now() >= closesAt) return { success: false, error: 'Trading has closed for this round.' }
   if (amountUsd <= 0) return { success: false, error: 'Invalid amount' }
 
   const { sharesReceived, newPool, pricePerShare } = buyShares(round.pool, side, amountUsd)

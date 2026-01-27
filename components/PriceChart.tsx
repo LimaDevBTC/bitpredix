@@ -187,11 +187,11 @@ export function PriceChart({ data, roundStartAt, roundEndsAt, serverTimeSkew = 0
   }
   
   return (
-    <div className="w-full h-56 sm:h-64 lg:h-60 xl:h-64 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="w-full h-44 sm:h-52 lg:h-60 xl:h-64 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 sm:p-4">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
-          margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+          margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
           <XAxis
@@ -212,7 +212,7 @@ export function PriceChart({ data, roundStartAt, roundEndsAt, serverTimeSkew = 0
           />
           <Tooltip content={ChartTooltip} />
           <Legend
-            wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}
+            wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }}
             iconType="line"
             formatter={(value) => (
               <span style={{ color: value === 'UP' ? '#22C55E' : '#EF4444', fontSize: '12px' }}>

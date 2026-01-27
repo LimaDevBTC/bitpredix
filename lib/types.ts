@@ -19,6 +19,8 @@ export interface Round {
   startAt: number
   /** Timestamp de fim (fim do minuto, quando resolve) */
   endsAt: number
+  /** Timestamp em que as apostas travam (aleatório entre 10 e 14s antes de endsAt). Se ausente, usa endsAt. */
+  tradingClosesAt?: number
   /** Preço do BTC no início da rodada (em USD) */
   priceAtStart: number
   /** Preço do BTC no fim (preenchido quando resolved) */
