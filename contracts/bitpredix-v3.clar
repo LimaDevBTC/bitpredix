@@ -7,7 +7,7 @@
 (define-constant SELF 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v3)
 (define-constant FEE_BPS u300)
 (define-constant MIN_BET u1000000)
-;; Testnet: todos os fees vão para o deployer (em mainnet, usar endereços SP separados)
+;; Testnet: todos os fees vao para o deployer (em mainnet, usar enderecos SP separados)
 (define-constant FEE_RECIPIENT_DEV 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK)
 (define-constant FEE_RECIPIENT_CONSULTANT 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK)
 (define-constant FEE_RECIPIENT_PO 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK)
