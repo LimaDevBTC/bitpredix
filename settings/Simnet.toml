@@ -1,0 +1,18 @@
+# Configuração para simnet (testes locais, clarinet check/test)
+# Mnemonic de teste BIP39 — NÃO usar em mainnet ou testnet real.
+#
+# Para os testes de oracle e bitpredix (set-price, create-round, resolve-round) passarem,
+# o deployer deve ser o ORACLE (ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK). Use o mesmo
+# mnemonic que em settings/Testnet.toml em [accounts.deployer].
+
+[network]
+name = "simnet"
+
+[accounts.deployer]
+mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+
+[accounts.wallet_1]
+mnemonic = "legal winner thank year wave sausage worth useful legal winner thank yellow"
+
+[accounts.wallet_2]
+mnemonic = "letter advice cage absurd amount doctor acoustic avoid letter advice cage above"

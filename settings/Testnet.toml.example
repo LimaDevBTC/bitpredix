@@ -1,0 +1,17 @@
+# Configuração para deploy na Stacks testnet
+# Copiar para Testnet.toml e preencher mnemonic.
+# Não commitar Testnet.toml se contiver mnemonic (adicionar a .gitignore).
+
+[network]
+# Rede Stacks testnet
+name = "testnet"
+
+# Conta que assina o deploy (precisa de STX em testnet; usar faucet).
+# Preencher mnemonic com as 12/24 palavras da carteira de deploy.
+# Em alternativa, usar encrypted_mnemonic (ver doc Clarinet).
+[accounts.deployer]
+mnemonic = "word1 word2 ... word12"
+
+# Opcional: RPC do nó. O default aponta para a Hiro testnet.
+# [node_rpc]
+# address = "https://api.testnet.hiro.so"

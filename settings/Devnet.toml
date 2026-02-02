@@ -1,0 +1,9 @@
+# Configuração para devnet (ambiente local com nós)
+# Para deploy em testnet, usar settings/Testnet.toml.
+
+[network]
+name = "devnet"
+
+[accounts.deployer]
+# Mnemonic de teste BIP39 — NÃO usar em mainnet ou testnet real.
+mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"

@@ -15,6 +15,8 @@ Este documento explica como os fundos (USDCx) serão movidos, travados e distrib
 
 ## Arquitetura On-Chain (Produção)
 
+Na versão on-chain (testnet/mainnet): **(a)** o preço de resolução vem de um **oráculo on-chain** (o contrato lê o preço em `oracle.get-price(round-id)`; em testnet a fonte é Bitstamp ou Pyth; em **mainnet** a fonte é o **Pyth** — oráculo de preços da Stacks — via backend que chama `oracle.set-price`); **(b)** a taxa de 3% do pool é repartida **10% para o dev, 10% para o consultant, 80% para o product owner**. Ver `docs/PLANO_TESTNET_STACKS.md` para o desenho do oráculo, Pyth, trava/libera e constantes `FEE_RECIPIENT_*`.
+
 ### Fluxo de Fundos
 
 ```
@@ -265,6 +267,10 @@ Total depositado na rodada: $10,000
 Taxa plataforma (3%): $300
 Total para distribuir: $9,700
 ```
+
+### Distribuição da taxa (10% / 10% / 80%)
+
+Os $300 de taxa **não** vão para um único `PLATFORM_ADDRESS`. São repartidos: **10%** ($30) para o dev, **10%** ($30) para o consultant, **80%** ($240) para o product owner. Cada um recebe em sua carteira (`FEE_RECIPIENT_DEV`, `FEE_RECIPIENT_CONSULTANT`, `FEE_RECIPIENT_PO`) via `ft-transfer` no `resolve-round`.
 
 ### Distribuição Proporcional
 

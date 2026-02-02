@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { getLocalStorage, openContractCall } from '@stacks/connect'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import { ResolutionModal } from './ResolutionModal'
@@ -9,6 +10,11 @@ import { RoundHistory } from './RoundHistory'
 import { saveTrade, getPositionForRound } from '@/lib/positions'
 import { estimateShares as ammEstimateShares } from '@/lib/amm'
 import type { PoolState } from '@/lib/types'
+
+const ONCHAIN = !!(
+  typeof process !== 'undefined' &&
+  process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
+)
 
 type Side = 'UP' | 'DOWN'
 
@@ -56,6 +62,8 @@ export function MarketCard() {
   const hadNon50ForCurrentRoundRef = useRef(false)
   const lastAcceptedDeviationRef = useRef(0)
   const [serverTimeSkew, setServerTimeSkew] = useState(0)
+  const [stxAddress, setStxAddress] = useState<string | null>(null)
+  const [onChainNoRound, setOnChainNoRound] = useState(false)
   /** Open fixo: priceAtStart, startAt, endsAt da primeira vez que vimos esta rodada. Nunca sobrescreve. */
   const fixedOpenRef = useRef<{ roundId: string; priceAtStart: number; startAt: number; endsAt: number } | null>(null)
 
@@ -112,6 +120,21 @@ export function MarketCard() {
     })
   }, [])
 
+  const refreshStx = useCallback(() => {
+    const data = getLocalStorage()
+    setStxAddress(data?.addresses?.stx?.[0]?.address ?? null)
+  }, [])
+
+  useEffect(() => {
+    refreshStx()
+  }, [refreshStx])
+
+  useEffect(() => {
+    if (stxAddress != null || !ONCHAIN) return
+    const id = setInterval(refreshStx, 2500)
+    return () => clearInterval(id)
+  }, [stxAddress, refreshStx])
+
   const fetchRound = useCallback(async () => {
     const ctrl = new AbortController()
     const to = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
@@ -119,6 +142,7 @@ export function MarketCard() {
       const res = await fetch('/api/round', { signal: ctrl.signal })
       const data = await res.json()
       if (data.ok) {
+        setOnChainNoRound(!!(data.round == null && data.onChainNoRound))
         const roundId = data.round?.id ?? null
         const sameRound = roundId != null && roundId === displayedRoundIdRef.current
         const pu = typeof data.priceUp === 'number' ? data.priceUp : 0.5
@@ -186,10 +210,12 @@ export function MarketCard() {
         }
       } else {
         setResolving(false)
+        setOnChainNoRound(false)
         setError(data.error ?? 'Failed to load round')
       }
     } catch (e) {
       setResolving(false)
+      setOnChainNoRound(false)
       setError(e instanceof Error && e.name === 'AbortError' ? 'Request timed out. Try again.' : 'Failed to load round')
     } finally {
       clearTimeout(to)
@@ -236,6 +262,50 @@ export function MarketCard() {
     }
     setTrading(true)
     setError(null)
+
+    if (ONCHAIN && round) {
+      const { Cl } = await import('@stacks/transactions')
+      const amountUint = Math.round(v * 1e6)
+      const roundIdUint = Math.floor(round.startAt / 1000)
+      const txId = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID ?? ''
+      const bpId = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID ?? ''
+      const [txAddr, txName] = txId.split('.')
+      const [bpAddr, bpName] = bpId.split('.')
+      if (!txAddr || !txName || !bpAddr || !bpName) {
+        setError('Contract IDs not configured')
+        setTrading(false)
+        return
+      }
+      openContractCall({
+        contractAddress: txAddr,
+        contractName: txName,
+        functionName: 'approve',
+        functionArgs: [Cl.principal(bpId), Cl.uint(amountUint)],
+        network: 'testnet',
+        onFinish: () => {
+          openContractCall({
+            contractAddress: bpAddr,
+            contractName: bpName,
+            functionName: 'place-bet',
+            functionArgs: [Cl.uint(roundIdUint), Cl.stringAscii(side), Cl.uint(amountUint)],
+            network: 'testnet',
+            onFinish: () => {
+              hadNon50ForCurrentRoundRef.current = true
+              setLastTrade({ side, shares: v, price: 1 })
+              setAmount('')
+              if (lastTradeTimeoutRef.current) clearTimeout(lastTradeTimeoutRef.current)
+              lastTradeTimeoutRef.current = setTimeout(() => setLastTrade(null), 5000)
+              fetchRound()
+              setTimeout(() => setTrading(false), MIN_TRADING_DELAY_MS)
+            },
+            onCancel: () => setTrading(false),
+          })
+        },
+        onCancel: () => setTrading(false),
+      })
+      return
+    }
+
     const startTime = Date.now()
     const ctrl = new AbortController()
     const to = setTimeout(() => ctrl.abort(), BUY_TIMEOUT_MS)
@@ -306,7 +376,7 @@ export function MarketCard() {
     }
   }
 
-  const MIN_AMOUNT_USD = 0.5
+  const MIN_AMOUNT_USD = ONCHAIN ? 1 : 0.5
   const PRESETS = [5, 10, 50, 100] as const
   const MAX_AMOUNT = 10000 // Valor máximo para o botão MAX
 
@@ -321,7 +391,16 @@ export function MarketCard() {
   const isTradingPhase = round?.status === 'TRADING' && !resolving
   const effectiveNow = Date.now() + serverTimeSkew
   const closesAt = round?.tradingClosesAt ?? round?.endsAt
-  const canTrade = isTradingPhase && (closesAt != null && effectiveNow < closesAt)
+  const canTrade =
+    isTradingPhase &&
+    (closesAt != null && effectiveNow < closesAt) &&
+    (!ONCHAIN || !!stxAddress)
+
+  const needsWallet =
+    ONCHAIN &&
+    !stxAddress &&
+    isTradingPhase &&
+    (closesAt != null && effectiveNow < closesAt)
 
   if (loading && !round) {
     return (
@@ -557,6 +636,12 @@ export function MarketCard() {
                           )}
                         </div>
                       </>
+                    ) : needsWallet ? (
+                      <div className="flex items-center justify-center min-h-[4.5rem] py-2">
+                        <p className="text-center text-amber-400/90 text-sm">
+                          Connect wallet to trade
+                        </p>
+                      </div>
                     ) : (
                       <div className="flex items-center justify-center min-h-[4.5rem] py-2">
                         <p className="text-center text-amber-400/90 text-sm">
@@ -571,7 +656,11 @@ export function MarketCard() {
                   </div>
                 ) : round?.status !== 'RESOLVED' ? (
                   <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                    <p className="text-center text-zinc-500 text-sm">Waiting for next round…</p>
+                    <p className="text-center text-zinc-500 text-sm">
+                      {round === null && onChainNoRound
+                        ? 'Nenhuma rodada on-chain. O cron do oráculo (create-round) está a correr?'
+                        : 'Waiting for next round…'}
+                    </p>
                   </div>
                 ) : (
                   <div className="flex items-center justify-center min-h-[4.5rem] py-2">

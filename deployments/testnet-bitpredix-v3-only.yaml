@@ -1,0 +1,19 @@
+# Apenas bitpredix-v3 (oracle-v2 ja existe)
+---
+id: 0
+name: Testnet - bitpredix-v3 only
+network: testnet
+stacks-node: "https://api.testnet.hiro.so"
+bitcoin-node: "http://blockstack:blockstacksystem@bitcoind.testnet.stacks.co:18332"
+plan:
+  batches:
+    - id: 0
+      transactions:
+        - contract-publish:
+            contract-name: bitpredix-v3
+            expected-sender: ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK
+            cost: 64870
+            path: contracts/bitpredix-v3.clar
+            anchor-block-only: true
+            clarity-version: 1
+      epoch: "2.05"

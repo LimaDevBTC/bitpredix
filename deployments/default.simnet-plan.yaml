@@ -1,0 +1,54 @@
+---
+id: 0
+name: "Simulated deployment, used as a default for `clarinet console`, `clarinet test` and `clarinet check`"
+network: simnet
+genesis:
+  wallets:
+    - name: deployer
+      address: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+      balance: "0"
+      sbtc-balance: "1000000000"
+  contracts:
+    - genesis
+    - lockup
+    - bns
+    - cost-voting
+    - costs
+    - pox
+    - costs-2
+    - pox-2
+    - costs-3
+    - pox-3
+    - pox-4
+    - signers
+    - signers-voting
+plan:
+  batches:
+    - id: 0
+      transactions:
+        - emulated-contract-publish:
+            contract-name: sip-010-trait
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/sip-010-trait.clar
+            clarity-version: 1
+        - emulated-contract-publish:
+            contract-name: test-usdcx
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/test-usdcx.clar
+            clarity-version: 1
+        - emulated-contract-publish:
+            contract-name: bitpredix
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/bitpredix.clar
+            clarity-version: 1
+        - emulated-contract-publish:
+            contract-name: bitpredix-v3
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/bitpredix-v3.clar
+            clarity-version: 1
+        - emulated-contract-publish:
+            contract-name: oracle
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/oracle.clar
+            clarity-version: 1
+      epoch: "2.05"

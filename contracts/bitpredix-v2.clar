@@ -1,9 +1,9 @@
-;; Bitpredix - Mercado de predicacao BTC (rounds 1 min)
-;; Ref: docs/PLANO_TESTNET_STACKS.md 3.3, docs/FUNDS_ARCHITECTURE.md
+;; Bitpredix v2 - Mercado de predicacao BTC (rounds 1 min)
+;; Versao para deploy como bitpredix-v2: SELF = .bitpredix-v2
 
 ;; ---- Constantes ----
 (define-constant ORACLE 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK)
-(define-constant SELF 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix)
+(define-constant SELF 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v2)
 (define-constant FEE_BPS u300)
 (define-constant MIN_BET u1000000)
 (define-constant FEE_RECIPIENT_DEV 'SP22EZVX13VM85AK6D3TRMZCZDT9K5441PMKSDJ6J)
@@ -11,10 +11,6 @@
 (define-constant FEE_RECIPIENT_PO 'SP21SQ28WQRQ10TBK72261QXQAEC67K5Y1YMMYFZV)
 
 ;; ---- Maps ----
-
-;; rounds: round-id -> dados (start-at, ends-at, trading-closes-at, price-at-start, price-at-end,
-;;   status TRADING|RESOLVED, outcome NONE|UP|DOWN, pool-up, pool-down, volume-traded,
-;;   total-shares-up, total-shares-down)
 (define-map rounds
   { round-id: uint }
   {
@@ -32,7 +28,6 @@
     total-shares-down: uint
   })
 
-;; positions: (round-id, user, side) -> shares, cost, settled
 (define-map positions
   { round-id: uint, user: principal, side: (string-ascii 4) }
   { shares: uint, cost: uint, settled: bool })
@@ -63,7 +58,7 @@
             }))
         (ok true)))))
 
-;; ---- place-bet (trava transfer-from para SELF; LMSR 1:1 shares = amount-usd) ----
+;; ---- place-bet ----
 (define-public (place-bet (round-id uint) (side (string-ascii 4)) (amount-usd uint))
   (let ((r (unwrap! (map-get? rounds { round-id: round-id }) (err u1001)))
         (block-time (unwrap! (get-block-info? time block-height) (err u1099))))
@@ -96,10 +91,7 @@
           })))
     (ok true)))
 
-;; ---- resolve-round (so ORACLE; recebe price-at-end; fees 10/10/80; marca RESOLVED) ----
-;; CORRIGIDO: preco vem como argumento (nao depende de oracle.get-price confirmado)
-;; CORRIGIDO: idempotente (retorna ok se ja RESOLVED)
-;; CORRIGIDO: nao falha se pool vazio (usa match para transfers)
+;; ---- resolve-round (recebe price-at-end; idempotente; robusto com pool vazio) ----
 (define-public (resolve-round (round-id uint) (price-at-end uint))
   (begin
     (asserts! (is-eq tx-sender ORACLE) (err u401))
@@ -140,7 +132,7 @@
               }))
             (ok true)))))))
 
-;; ---- claim-winnings (payout proporcional; marca settled) ----
+;; ---- claim-winnings ----
 (define-public (claim-winnings (round-id uint))
   (let ((r (unwrap! (map-get? rounds { round-id: round-id }) (err u1001)))
         (outcome (get outcome r)))

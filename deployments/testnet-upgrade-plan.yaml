@@ -1,0 +1,28 @@
+# Upgrade plan: deploy oracle-v2 e bitpredix-v2 (contratos existentes nao podem ser sobrescritos)
+# Os CONTRACT_IDs ficam: ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.oracle-v2 e .bitpredix-v2
+
+---
+id: 0
+name: Testnet upgrade (oracle-v2, bitpredix-v2)
+network: testnet
+stacks-node: "https://api.testnet.hiro.so"
+bitcoin-node: "http://blockstack:blockstacksystem@bitcoind.testnet.stacks.co:18332"
+plan:
+  batches:
+    - id: 0
+      transactions:
+        - contract-publish:
+            contract-name: oracle-v2
+            expected-sender: ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK
+            cost: 6730
+            path: contracts/oracle.clar
+            anchor-block-only: true
+            clarity-version: 1
+        - contract-publish:
+            contract-name: bitpredix-v3
+            expected-sender: ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK
+            cost: 64870
+            path: contracts/bitpredix-v3.clar
+            anchor-block-only: true
+            clarity-version: 1
+      epoch: "2.05"

@@ -6,6 +6,8 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 const ROUND_DURATION_MS = 60 * 1000
+const HIRO_TESTNET = 'https://api.testnet.hiro.so'
+const BITPREDIX_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
 
 function roundToJson(r: { id: string; startAt: number; endsAt: number; tradingClosesAt?: number; priceAtStart: number; priceAtEnd?: number; outcome?: string; status: string; pool: object }) {
   const endsAt = r.startAt + ROUND_DURATION_MS
@@ -22,9 +24,85 @@ function roundToJson(r: { id: string; startAt: number; endsAt: number; tradingCl
   }
 }
 
-/** GET: obter/criar rodada atual e preços. Se acabou de resolver, inclui resolvedRound. */
+function parseContractId(id: string): [string, string] {
+  const i = id.lastIndexOf('.')
+  if (i < 0) throw new Error(`Invalid contract id: ${id}`)
+  return [id.slice(0, i), id.slice(i + 1)]
+}
+
+function emptyRoundResponse() {
+  return NextResponse.json({
+    round: null,
+    priceUp: 0.5,
+    priceDown: 0.5,
+    serverNow: Date.now(),
+    onChainNoRound: true,
+    ok: true,
+  })
+}
+
+/** GET: obter rodada atual e preços. Em modo on-chain (BITPREDIX_ID) lê do contrato; senão usa memória. */
 export async function GET() {
   try {
+    if (BITPREDIX_ID && BITPREDIX_ID.includes('.')) {
+      try {
+        const [contractAddress, contractName] = parseContractId(BITPREDIX_ID)
+        const roundId = Math.floor(Date.now() / 1000 / 60) * 60
+        const { Cl, cvToHex, deserializeCV } = await import('@stacks/transactions')
+        const keyHex = cvToHex(Cl.tuple({ 'round-id': Cl.uint(roundId) }))
+        const res = await fetch(
+          `${HIRO_TESTNET}/v2/map_entry/${contractAddress}/${contractName}/rounds?proof=0`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(keyHex),
+          }
+        )
+        const json = (await res.json()) as { data?: string }
+        if (!res.ok || !json.data) {
+          return emptyRoundResponse()
+        }
+        const cv = deserializeCV(json.data) as unknown as { type?: string; value?: { data: Record<string, { value?: bigint | string }> }; data?: Record<string, { value?: bigint | string }> }
+        // map_entry devolve (some tuple) quando a chave existe; (none) quando não existe.
+        const tuple = (cv?.type === 'some' && cv?.value) ? cv.value : cv
+        const d = tuple?.data ?? cv?.data
+        if (!d) {
+          return emptyRoundResponse()
+        }
+        const u = (k: string) => Number(d[k]?.value ?? 0)
+        const s = (k: string) => String(d[k]?.value ?? '')
+        const startAt = u('start-at') * 1000
+        const round = {
+          id: `round-${roundId}`,
+          startAt,
+          endsAt: u('ends-at') * 1000,
+          tradingClosesAt: u('trading-closes-at') * 1000,
+          priceAtStart: u('price-at-start') / 1e6,
+          priceAtEnd: u('price-at-end') > 0 ? u('price-at-end') / 1e6 : undefined,
+          outcome: s('outcome') !== 'NONE' ? s('outcome') : undefined,
+          status: s('status'),
+          pool: {
+            qUp: u('pool-up') / 1e6,
+            qDown: u('pool-down') / 1e6,
+            volumeTraded: u('volume-traded') / 1e6,
+          } as { qUp: number; qDown: number; volumeTraded: number },
+        }
+        const pu = u('pool-up') + u('pool-down') > 0
+          ? u('pool-down') / (u('pool-up') + u('pool-down'))
+          : 0.5
+        const pd = 1 - pu
+        return NextResponse.json({
+          round: roundToJson(round),
+          priceUp: pu,
+          priceDown: pd,
+          serverNow: Date.now(),
+          ok: true,
+        })
+      } catch {
+        return emptyRoundResponse()
+      }
+    }
+
     const result = await getOrCreateCurrentRound(fetchBtcPriceUsd)
     const { round, resolvedRound } = result
     const priceUp = getPriceUp(round.pool)

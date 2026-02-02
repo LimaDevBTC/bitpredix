@@ -1,22 +1,23 @@
 import Link from 'next/link'
 import { MarketCard } from '@/components/MarketCard'
 import { TradingViewBtcChart } from '@/components/TradingViewBtcChart'
+import { TradingViewTechnicalAnalysis } from '@/components/TradingViewTechnicalAnalysis'
+import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrapper'
+import { MintTestTokensWrapper } from '@/components/MintTestTokensWrapper'
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-950 bg-grid-pattern">
       <div className="w-full max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
-        <header className="flex items-center justify-between mb-6 sm:mb-8">
+        <header className="flex items-center justify-between gap-3 mb-6 sm:mb-8">
           <Link href="/" className="font-bold text-xl sm:text-2xl tracking-tight">
             <span className="text-bitcoin">Bit</span>
             <span className="text-zinc-100">predix</span>
           </Link>
-          <button
-            type="button"
-            className="px-4 py-2 rounded-lg bg-bitcoin/20 text-bitcoin border border-bitcoin/40 hover:bg-bitcoin/30 hover:border-bitcoin/60 font-medium text-sm transition-colors"
-          >
-            Connect wallet
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <MintTestTokensWrapper />
+            <ConnectWalletButtonWrapper />
+          </div>
         </header>
 
         <section className="mb-4 sm:mb-6 rounded-2xl border border-zinc-800 bg-zinc-900/80 overflow-hidden">
@@ -26,6 +27,10 @@ export default function Home() {
         </section>
 
         <MarketCard />
+
+        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 overflow-hidden">
+          <TradingViewTechnicalAnalysis />
+        </section>
 
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 sm:p-5 text-sm text-zinc-400">
           <h3 className="font-semibold text-zinc-300 mb-2">How it works</h3>

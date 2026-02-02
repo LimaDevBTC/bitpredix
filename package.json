@@ -6,15 +6,27 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:costs": "vitest run -- --costs",
+    "mint-test": "node scripts/mint-test-tokens.js",
+    "cron-oracle": "node scripts/cron-oracle.mjs",
+    "oracle-daemon": "node scripts/oracle-daemon.mjs",
+    "oracle-check-address": "node scripts/oracle-check-address.mjs",
+    "check-round": "node scripts/check-round.mjs"
   },
   "dependencies": {
+    "@stacks/connect": "^8.2.4",
+    "@stacks/transactions": "^7.3.1",
+    "@stacks/wallet-sdk": "^7.2.0",
+    "dotenv": "^17.2.3",
     "next": "^16.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.7.0"
   },
   "devDependencies": {
+    "@stacks/clarinet-sdk": "^3.9.1",
     "@types/node": "^22.9.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -23,6 +35,8 @@
     "eslint-config-next": "^16.1.4",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.9",
+    "vitest-environment-clarinet": "^3.0.2"
   }
 }

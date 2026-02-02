@@ -108,11 +108,11 @@
 
 ### Sprint 3 — ✅ Parcial (4/5)
 
-- ✅ Gráfico BTC em tempo real
 - ✅ Interface de apostas
 - ✅ Visualização de pools e odds
 - ✅ APIs básicas
 - ⬜ Schema do banco (estado em memória no MVP)
+- ⬜ Gráfico do bitcoin em tempo real.
 
 ### Sprints 4–6 — ⬜ Pendentes
 
@@ -160,6 +160,6 @@ O **Sprint 1** foi concluído com sucesso, entregando a base sólida do MVP. O p
 
 ---
 
-**Desenvolvido por:** Equipe Bitpredix  
+**Desenvolvido por:** Bitmax  
 **Versão:** 0.0.1 (Beta)  
-**Data do relatório:** 23/01/2026
+**Data do relatório:** 26/01/2026
