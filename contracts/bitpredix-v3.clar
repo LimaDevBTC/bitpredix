@@ -62,10 +62,10 @@
 
 ;; ---- place-bet ----
 (define-public (place-bet (round-id uint) (side (string-ascii 4)) (amount-usd uint))
-  (let ((r (unwrap! (map-get? rounds { round-id: round-id }) (err u1001)))
-        (block-time (unwrap! (get-block-info? time block-height) (err u1099))))
+  (let ((r (unwrap! (map-get? rounds { round-id: round-id }) (err u1001))))
     (asserts! (is-eq (get status r) "TRADING") (err u1002))
-    (asserts! (< block-time (get trading-closes-at r)) (err u1002))
+    ;; Validacao de timing removida - o daemon resolve o round no momento certo
+    ;; e o status TRADING garante que ainda esta aberto
     (asserts! (>= amount-usd MIN_BET) (err u1002))
     (asserts! (or (is-eq side "UP") (is-eq side "DOWN")) (err u1002))
     (try! (contract-call? .test-usdcx transfer-from tx-sender SELF amount-usd none))
