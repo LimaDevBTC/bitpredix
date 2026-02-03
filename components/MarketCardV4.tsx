@@ -111,9 +111,9 @@ export function MarketCardV4() {
       const addr = data?.addresses?.stx?.[0]?.address ?? null
       setStxAddress(addr)
 
-      // Verifica se já habilitou trading (salvo no localStorage)
-      if (addr) {
-        const key = `bitpredix_trading_enabled_${addr}`
+      // Verifica se já habilitou trading para ESTE contrato (salvo no localStorage)
+      if (addr && BITPREDIX_CONTRACT) {
+        const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
         setTradingEnabled(localStorage.getItem(key) === 'true')
       }
     }
@@ -178,8 +178,8 @@ export function MarketCardV4() {
           ],
           network: 'testnet',
           onFinish: () => {
-            // Salva no localStorage que habilitou trading
-            const key = `bitpredix_trading_enabled_${stxAddress}`
+            // Salva no localStorage que habilitou trading para ESTE contrato
+            const key = `bitpredix_trading_enabled_${stxAddress}_${BITPREDIX_CONTRACT}`
             localStorage.setItem(key, 'true')
             setTradingEnabled(true)
             resolve()
