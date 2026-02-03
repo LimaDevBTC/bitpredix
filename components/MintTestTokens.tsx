@@ -23,6 +23,7 @@ export function MintTestTokens() {
     if (!isConnected()) {
       setStx(null)
       setCanMint(null)
+      setBalance('0')
       setLoading(false)
       setError(null)
       return
@@ -30,7 +31,6 @@ export function MintTestTokens() {
     const data = getLocalStorage()
     const addr = data?.addresses?.stx?.[0]?.address ?? null
     setStx(addr)
-    setError(null)
 
     if (!addr) {
       setCanMint(null)
@@ -42,19 +42,27 @@ export function MintTestTokens() {
       const r = await fetch(`/api/mint-status?address=${encodeURIComponent(addr)}`)
       const j = await r.json()
       if (!j.ok) {
-        setError(j.error || 'Falha ao verificar mint')
+        // Se já tem balance anterior, não mostra erro
+        if (balance !== '0') {
+          setLoading(false)
+          return
+        }
+        setError(j.error || 'Falha ao verificar')
         setCanMint(null)
       } else {
         setCanMint(j.canMint === true)
         setBalance(typeof j.balance === 'string' ? j.balance : '0')
+        setError(null)
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar')
-      setCanMint(null)
+    } catch {
+      // Erro de rede - se já tem balance, ignora silenciosamente
+      if (balance === '0') {
+        setError('Rede indisponível')
+      }
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [balance])
 
   useEffect(() => {
     refresh()
@@ -90,9 +98,17 @@ export function MintTestTokens() {
 
   if (error) {
     return (
-      <span className="text-red-400/90 text-sm" title={error}>
-        Erro
-      </span>
+      <button
+        onClick={() => {
+          setLoading(true)
+          setError(null)
+          refresh()
+        }}
+        className="text-amber-400/90 text-sm hover:text-amber-300 transition"
+        title={error}
+      >
+        ⟳ Retry
+      </button>
     )
   }
 
