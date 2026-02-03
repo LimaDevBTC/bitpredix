@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl } from '@stacks/transactions'
+import { Cl, Pc } from '@stacks/transactions'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import { PriceChart, type PriceDataPoint } from './PriceChart'
@@ -236,6 +236,14 @@ export function MarketCardV4() {
     const amountMicro = Math.round(v * 1e6) // 6 decimais
 
     try {
+      // Post-condition: usuário envia exatamente amountMicro de test-usdcx para o contrato
+      const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
+      const postConditions = tokenAddr && tokenName ? [
+        Pc.principal(stxAddress)
+          .willSendLte(amountMicro)
+          .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
+      ] : []
+
       await new Promise<void>((resolve, reject) => {
         openContractCall({
           contractAddress: bpAddr,
@@ -246,6 +254,7 @@ export function MarketCardV4() {
             Cl.stringAscii(side),
             Cl.uint(amountMicro)
           ],
+          postConditions,
           network: 'testnet',
           onFinish: (data) => {
             console.log('Bet placed:', data.txId)
