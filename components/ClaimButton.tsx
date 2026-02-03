@@ -5,7 +5,8 @@ import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
 import { Cl, cvToJSON, hexToCV, cvToHex, Pc, FungibleConditionCode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
+const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
+const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_CLAIMS_PER_TX = 10
 
 interface PendingRound {
@@ -212,7 +213,6 @@ export function ClaimButton() {
 
             // Post-conditions: permite que o contrato envie tokens para o usuario
             // Como nao sabemos o valor exato do payout, usamos willSendGte(0)
-            const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || ''
             const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
 
             // Post-condition: contrato enviara >= 0 tokens (permite qualquer transferencia do contrato)
