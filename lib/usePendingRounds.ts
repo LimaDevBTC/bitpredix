@@ -48,18 +48,17 @@ export function usePendingRounds(): UsePendingRoundsResult {
       const [contractAddr, contractName] = BITPREDIX_CONTRACT.split('.')
       if (!contractAddr || !contractName) return
 
-      // Chama get-user-pending-rounds
-      const response = await fetch(
-        `https://api.testnet.hiro.so/v2/contracts/call-read/${contractAddr}/${contractName}/get-user-pending-rounds`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sender: stxAddress,
-            arguments: [cvToHex(Cl.principal(stxAddress))]
-          })
-        }
-      ).catch(() => null) // Silently handle network errors
+      // Chama get-user-pending-rounds via proxy (evita CORS)
+      const response = await fetch('/api/stacks-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contractId: BITPREDIX_CONTRACT,
+          functionName: 'get-user-pending-rounds',
+          args: [cvToHex(Cl.principal(stxAddress))],
+          sender: stxAddress
+        })
+      }).catch(() => null) // Silently handle network errors
 
       if (!response || !response.ok) {
         // Network error or API error - silently ignore, will retry
@@ -93,20 +92,19 @@ export function usePendingRounds(): UsePendingRoundsResult {
 
       for (const roundId of roundIds) {
         try {
-          const betResponse = await fetch(
-            `https://api.testnet.hiro.so/v2/contracts/call-read/${contractAddr}/${contractName}/get-bet`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                sender: stxAddress,
-                arguments: [
-                  cvToHex(Cl.uint(roundId)),
-                  cvToHex(Cl.principal(stxAddress))
-                ]
-              })
-            }
-          ).catch(() => null) // Silently handle network errors
+          const betResponse = await fetch('/api/stacks-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contractId: BITPREDIX_CONTRACT,
+              functionName: 'get-bet',
+              args: [
+                cvToHex(Cl.uint(roundId)),
+                cvToHex(Cl.principal(stxAddress))
+              ],
+              sender: stxAddress
+            })
+          }).catch(() => null) // Silently handle network errors
 
           if (betResponse && betResponse.ok) {
             const betData = await betResponse.json()

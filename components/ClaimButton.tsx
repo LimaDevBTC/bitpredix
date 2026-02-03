@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex, Pc, PostConditionMode } from '@stacks/transactions'
+import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
@@ -51,18 +51,17 @@ export function ClaimButton() {
       const [contractAddr, contractName] = BITPREDIX_CONTRACT.split('.')
       if (!contractAddr || !contractName) return
 
-      // Chama get-user-pending-rounds
-      const response = await fetch(
-        `https://api.testnet.hiro.so/v2/contracts/call-read/${contractAddr}/${contractName}/get-user-pending-rounds`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sender: stxAddress,
-            arguments: [cvToHex(Cl.principal(stxAddress))]
-          })
-        }
-      ).catch(() => null) // Silently handle network errors
+      // Chama get-user-pending-rounds via proxy (evita CORS)
+      const response = await fetch('/api/stacks-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contractId: BITPREDIX_CONTRACT,
+          functionName: 'get-user-pending-rounds',
+          args: [cvToHex(Cl.principal(stxAddress))],
+          sender: stxAddress
+        })
+      }).catch(() => null) // Silently handle network errors
 
       if (!response || !response.ok) {
         // Network error - silently ignore, will retry
@@ -95,20 +94,19 @@ export function ClaimButton() {
       const rounds: PendingRound[] = []
       for (const roundId of roundIds) {
         try {
-          const betResponse = await fetch(
-            `https://api.testnet.hiro.so/v2/contracts/call-read/${contractAddr}/${contractName}/get-bet`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                sender: stxAddress,
-                arguments: [
-                  cvToHex(Cl.uint(roundId)),
-                  cvToHex(Cl.principal(stxAddress))
-                ]
-              })
-            }
-          ).catch(() => null) // Silently handle network errors
+          const betResponse = await fetch('/api/stacks-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contractId: BITPREDIX_CONTRACT,
+              functionName: 'get-bet',
+              args: [
+                cvToHex(Cl.uint(roundId)),
+                cvToHex(Cl.principal(stxAddress))
+              ],
+              sender: stxAddress
+            })
+          }).catch(() => null) // Silently handle network errors
 
           if (betResponse && betResponse.ok) {
             const betData = await betResponse.json()
@@ -225,7 +223,7 @@ export function ClaimButton() {
                   Cl.uint(prices.priceStart),
                   Cl.uint(prices.priceEnd)
                 ],
-                postConditionMode: PostConditionMode.Allow, // Permite contrato enviar tokens para usuario
+                postConditionMode: 0x01, // Allow mode (0x01) - permite contrato enviar tokens para usuario
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)
