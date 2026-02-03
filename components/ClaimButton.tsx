@@ -245,25 +245,9 @@ export function ClaimButton() {
               })
             })
 
-            // Aguarda um pouco e verifica o status da transação
-            setClaimProgress(`Aguardando confirmacao tx ${txId.slice(0, 8)}...`)
-            await new Promise(r => setTimeout(r, 5000))
-
-            // Verifica status da transação
-            try {
-              const txResponse = await fetch(`https://api.testnet.hiro.so/extended/v1/tx/${txId}`)
-              if (txResponse.ok) {
-                const txData = await txResponse.json()
-                console.log(`[ClaimButton] Tx ${txId} status:`, txData.tx_status, txData.tx_result)
-                if (txData.tx_status === 'abort_by_response') {
-                  console.error(`[ClaimButton] Tx failed:`, txData.tx_result)
-                  setClaimProgress(`Round ${round.roundId} falhou: ${txData.tx_result?.repr || 'erro desconhecido'}`)
-                  await new Promise(r => setTimeout(r, 2000))
-                }
-              }
-            } catch {
-              // Ignore tx status check errors
-            }
+            // Tx foi enviada - remove otimisticamente da lista de pendentes
+            setPendingRounds(prev => prev.filter(r => r.roundId !== round.roundId))
+            console.log(`[ClaimButton] Round ${round.roundId} removed from pending (optimistic)`)
 
             processed++
           } catch (e) {
@@ -274,13 +258,13 @@ export function ClaimButton() {
         }
       }
 
-      setClaimProgress('Aguardando confirmacao final...')
-      // Aguarda mais tempo para transacao confirmar no testnet (blocos de 10-30s)
-      setTimeout(() => {
-        setClaimProgress(null)
-        fetchPendingRounds()
-        window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
-      }, 15000) // 15 segundos para garantir confirmacao
+      // Atualiza saldo apos claims
+      setClaimProgress(null)
+      window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
+
+      // Verifica se ainda ha rounds pendentes apos alguns segundos
+      // (pode ter novos rounds desde que o claim comecou)
+      setTimeout(fetchPendingRounds, 10000)
     } catch (e) {
       console.error('[ClaimButton] Claim error:', e)
       setError(e instanceof Error ? e.message : 'Claim failed')

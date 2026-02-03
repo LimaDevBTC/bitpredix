@@ -12,6 +12,22 @@ function parseContractId(id: string): [string, string] {
   return [id.slice(0, i), id.slice(i + 1)]
 }
 
+async function callContract(contractId: string, functionName: string, args: string[], sender: string) {
+  const [contractAddress, contractName] = parseContractId(contractId)
+
+  const response = await fetch(`${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/${functionName}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender, arguments: args })
+  })
+
+  if (!response.ok) {
+    throw new Error(`Hiro API error: ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const address = searchParams.get('address')
@@ -32,41 +48,46 @@ export async function GET(req: Request) {
 
   try {
     const { Cl, cvToHex, hexToCV } = await import('@stacks/transactions')
-    const [contractAddress, contractName] = parseContractId(CONTRACT_ID)
     const argHex = cvToHex(Cl.principal(address))
-    const base = { method: 'POST' as const, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: address, arguments: [argHex] }) }
 
-    const [resMinted, resBalance] = await Promise.all([
-      fetch(`${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-minted`, base),
-      fetch(`${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-balance`, base),
+    // Busca minted e balance em paralelo
+    const [mintedResult, balanceResult] = await Promise.allSettled([
+      callContract(CONTRACT_ID, 'get-minted', [argHex], address),
+      callContract(CONTRACT_ID, 'get-balance', [argHex], address)
     ])
 
-    const json = (await resMinted.json()) as { okay?: boolean; result?: string; cause?: string }
-    if (!resMinted.ok || !json.okay || typeof json.result !== 'string') {
-      throw new Error(json.cause || `Hiro API ${resMinted.status}`)
-    }
-    const cv = hexToCV(json.result)
-    const v = (cv as unknown as { value?: bigint | number | string }).value
-    const minted = v == null ? BigInt(0) : typeof v === 'bigint' ? v : BigInt(Number(v))
-    const canMint = minted === BigInt(0)
+    // Parse minted
+    let minted = BigInt(0)
+    let canMint = true
 
+    if (mintedResult.status === 'fulfilled') {
+      const json = mintedResult.value as { okay?: boolean; result?: string; cause?: string }
+      if (json.okay && typeof json.result === 'string') {
+        const cv = hexToCV(json.result)
+        const v = (cv as unknown as { value?: bigint | number | string }).value
+        minted = v == null ? BigInt(0) : typeof v === 'bigint' ? v : BigInt(Number(v))
+        canMint = minted === BigInt(0)
+      }
+    }
+
+    // Parse balance
     let balance = '0'
-    try {
-      const jBalance = (await resBalance.json()) as { okay?: boolean; result?: string }
-      if (resBalance.ok && jBalance.okay && typeof jBalance.result === 'string') {
-        const cvBal = hexToCV(jBalance.result) as { type?: string; value?: { value?: bigint } | bigint }
-        // get-balance retorna (ok uint). ResponseOkCV: type='ok', value=UIntCV { value: bigint }.
-        // Se a API desempacotar (ok x), vem UIntCV: type='uint', value=bigint.
-        if (cvBal?.type === 'ok' && cvBal.value != null) {
-          const v = (cvBal.value as { value?: bigint })?.value
-          balance = v != null ? String(v) : '0'
-        } else if (cvBal?.type === 'uint') {
-          const v = (cvBal.value as bigint) ?? (cvBal.value as { value?: bigint })?.value
-          balance = v != null ? String(v) : '0'
+    if (balanceResult.status === 'fulfilled') {
+      const jBalance = balanceResult.value as { okay?: boolean; result?: string }
+      if (jBalance.okay && typeof jBalance.result === 'string') {
+        try {
+          const cvBal = hexToCV(jBalance.result) as { type?: string; value?: { value?: bigint } | bigint }
+          if (cvBal?.type === 'ok' && cvBal.value != null) {
+            const v = (cvBal.value as { value?: bigint })?.value
+            balance = v != null ? String(v) : '0'
+          } else if (cvBal?.type === 'uint') {
+            const v = (cvBal.value as bigint) ?? (cvBal.value as { value?: bigint })?.value
+            balance = v != null ? String(v) : '0'
+          }
+        } catch {
+          balance = '0'
         }
       }
-    } catch {
-      balance = '0'
     }
 
     return NextResponse.json({
@@ -77,6 +98,7 @@ export async function GET(req: Request) {
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'get-minted failed'
+    console.error('[mint-status] Error:', msg)
     return NextResponse.json(
       { error: msg, ok: false },
       { status: 502 }
