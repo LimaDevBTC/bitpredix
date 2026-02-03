@@ -62,17 +62,17 @@ export function ClaimButton() {
             arguments: [cvToHex(Cl.principal(stxAddress))]
           })
         }
-      )
+      ).catch(() => null) // Silently handle network errors
 
-      if (!response.ok) {
-        console.error('[ClaimButton] Failed to fetch pending rounds:', response.status)
+      if (!response || !response.ok) {
+        // Network error - silently ignore, will retry
         return
       }
 
       const data = await response.json()
 
       if (!data.okay || !data.result) {
-        console.error('[ClaimButton] Invalid response:', data)
+        // Invalid response - silently ignore
         return
       }
 

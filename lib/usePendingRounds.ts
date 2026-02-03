@@ -59,10 +59,10 @@ export function usePendingRounds(): UsePendingRoundsResult {
             arguments: [cvToHex(Cl.principal(stxAddress))]
           })
         }
-      )
+      ).catch(() => null) // Silently handle network errors
 
-      if (!response.ok) {
-        console.error('[usePendingRounds] Failed to fetch:', response.status)
+      if (!response || !response.ok) {
+        // Network error or API error - silently ignore, will retry
         return
       }
 
