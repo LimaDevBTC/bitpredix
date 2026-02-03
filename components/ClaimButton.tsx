@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
+import { Cl, cvToJSON, hexToCV, cvToHex, Pc, PostConditionMode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
@@ -213,6 +213,8 @@ export function ClaimButton() {
             setClaimProgress(`Enviando claim ${processed + 1} de ${pendingRounds.length}...`)
 
             // Chama claim-round no contrato
+            // Usa PostConditionMode.Allow porque o contrato envia tokens PARA o usuario (nao do usuario)
+            // Sem isso, a carteira bloqueia a tx por "token moved but not checked"
             const txId = await new Promise<string>((resolve, reject) => {
               openContractCall({
                 contractAddress: contractAddr,
@@ -223,6 +225,7 @@ export function ClaimButton() {
                   Cl.uint(prices.priceStart),
                   Cl.uint(prices.priceEnd)
                 ],
+                postConditionMode: PostConditionMode.Allow, // Permite contrato enviar tokens para usuario
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)
