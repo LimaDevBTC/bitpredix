@@ -1,5 +1,8 @@
 'use client'
 
+// === VERSION CHECK: v2024-02-03-A ===
+console.log('🔥 ClaimButton LOADED - version v2024-02-03-A 🔥')
+
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
 import { Cl, cvToJSON, hexToCV, cvToHex, Pc, FungibleConditionCode } from '@stacks/transactions'
