@@ -197,6 +197,12 @@ export function ClaimButton() {
             let prices
             try {
               prices = await getRoundPrices(round.roundId)
+              console.log(`[ClaimButton] Round ${round.roundId} prices:`, {
+                priceStart: prices.priceStart,
+                priceEnd: prices.priceEnd,
+                startUSD: (prices.priceStart / 100).toFixed(2),
+                endUSD: (prices.priceEnd / 100).toFixed(2)
+              })
             } catch (priceError) {
               console.error(`[ClaimButton] Failed to get prices for round ${round.roundId}:`, priceError)
               setClaimProgress(`Precos indisponiveis para round ${round.roundId}, pulando...`)
@@ -207,7 +213,7 @@ export function ClaimButton() {
             setClaimProgress(`Enviando claim ${processed + 1} de ${pendingRounds.length}...`)
 
             // Chama claim-round no contrato
-            await new Promise<void>((resolve, reject) => {
+            const txId = await new Promise<string>((resolve, reject) => {
               openContractCall({
                 contractAddress: contractAddr,
                 contractName: contractName,
@@ -220,13 +226,33 @@ export function ClaimButton() {
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)
-                  resolve()
+                  resolve(data.txId)
                 },
                 onCancel: () => {
                   reject(new Error('Transaction cancelled by user'))
                 }
               })
             })
+
+            // Aguarda um pouco e verifica o status da transação
+            setClaimProgress(`Aguardando confirmacao tx ${txId.slice(0, 8)}...`)
+            await new Promise(r => setTimeout(r, 5000))
+
+            // Verifica status da transação
+            try {
+              const txResponse = await fetch(`https://api.testnet.hiro.so/extended/v1/tx/${txId}`)
+              if (txResponse.ok) {
+                const txData = await txResponse.json()
+                console.log(`[ClaimButton] Tx ${txId} status:`, txData.tx_status, txData.tx_result)
+                if (txData.tx_status === 'abort_by_response') {
+                  console.error(`[ClaimButton] Tx failed:`, txData.tx_result)
+                  setClaimProgress(`Round ${round.roundId} falhou: ${txData.tx_result?.repr || 'erro desconhecido'}`)
+                  await new Promise(r => setTimeout(r, 2000))
+                }
+              }
+            } catch {
+              // Ignore tx status check errors
+            }
 
             processed++
           } catch (e) {
@@ -237,12 +263,13 @@ export function ClaimButton() {
         }
       }
 
-      setClaimProgress(null)
-      // Atualiza lista de pendentes e saldo
+      setClaimProgress('Aguardando confirmacao final...')
+      // Aguarda mais tempo para transacao confirmar no testnet (blocos de 10-30s)
       setTimeout(() => {
+        setClaimProgress(null)
         fetchPendingRounds()
         window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
-      }, 3000)
+      }, 15000) // 15 segundos para garantir confirmacao
     } catch (e) {
       console.error('[ClaimButton] Claim error:', e)
       setError(e instanceof Error ? e.message : 'Claim failed')
