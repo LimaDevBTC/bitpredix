@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getLocalStorage, openContractCall } from '@stacks/connect'
-import { Cl } from '@stacks/transactions'
+import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
+import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import { PriceChart, type PriceDataPoint } from './PriceChart'
@@ -10,6 +10,7 @@ import { usePythPrice, fetchCurrentPrice } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || ''
+const MAX_APPROVE_AMOUNT = BigInt('1000000000000') // 1 million USD (6 decimals)
 
 type Side = 'UP' | 'DOWN'
 
@@ -96,9 +97,18 @@ export function MarketCardV4() {
     return () => clearInterval(interval)
   }, [currentPrice])
 
+  // Estado de allowance
+  const [hasAllowance, setHasAllowance] = useState<boolean | null>(null)
+  const [checkingAllowance, setCheckingAllowance] = useState(false)
+
   // Busca endereco da carteira
   useEffect(() => {
     const refreshAddress = () => {
+      if (!isConnected()) {
+        setStxAddress(null)
+        setHasAllowance(null)
+        return
+      }
       const data = getLocalStorage()
       setStxAddress(data?.addresses?.stx?.[0]?.address ?? null)
     }
@@ -106,6 +116,54 @@ export function MarketCardV4() {
     const interval = setInterval(refreshAddress, 2500)
     return () => clearInterval(interval)
   }, [])
+
+  // Verifica allowance quando tem endereco
+  const checkAllowance = useCallback(async () => {
+    if (!stxAddress || !TOKEN_CONTRACT || !BITPREDIX_CONTRACT) {
+      setHasAllowance(null)
+      return
+    }
+
+    setCheckingAllowance(true)
+    try {
+      const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
+      if (!tokenAddr || !tokenName) return
+
+      const response = await fetch(
+        `https://api.testnet.hiro.so/v2/contracts/call-read/${tokenAddr}/${tokenName}/get-allowance`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender: stxAddress,
+            arguments: [
+              cvToHex(Cl.principal(stxAddress)),
+              cvToHex(Cl.principal(BITPREDIX_CONTRACT))
+            ]
+          })
+        }
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.okay && data.result) {
+          const resultCV = hexToCV(data.result)
+          const resultJSON = cvToJSON(resultCV)
+          const allowance = BigInt(resultJSON?.value?.value || '0')
+          // Se tem pelo menos 1 USD de allowance, considera como habilitado
+          setHasAllowance(allowance >= BigInt(1000000))
+        }
+      }
+    } catch (e) {
+      console.error('[MarketCardV4] Error checking allowance:', e)
+    } finally {
+      setCheckingAllowance(false)
+    }
+  }, [stxAddress])
+
+  useEffect(() => {
+    checkAllowance()
+  }, [checkAllowance])
 
   // Adiciona pontos ao historico de precos
   useEffect(() => {
@@ -134,6 +192,53 @@ export function MarketCardV4() {
     })
   }, [currentPrice, round])
 
+  // Habilita trading (approve de valor alto, uma vez só)
+  const enableTrading = async () => {
+    if (!stxAddress) {
+      setError('Connect wallet first')
+      return
+    }
+
+    setTrading(true)
+    setError(null)
+
+    const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
+    if (!tokenAddr || !tokenName) {
+      setError('Token contract not configured')
+      setTrading(false)
+      return
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        openContractCall({
+          contractAddress: tokenAddr,
+          contractName: tokenName,
+          functionName: 'approve',
+          functionArgs: [
+            Cl.principal(BITPREDIX_CONTRACT),
+            Cl.uint(MAX_APPROVE_AMOUNT)
+          ],
+          network: 'testnet',
+          onFinish: () => {
+            // Aguarda um pouco e verifica novamente o allowance
+            setTimeout(() => {
+              checkAllowance()
+              resolve()
+            }, 3000)
+          },
+          onCancel: () => reject(new Error('Cancelled'))
+        })
+      })
+    } catch (e) {
+      if (e instanceof Error && e.message !== 'Cancelled') {
+        setError(e.message)
+      }
+    } finally {
+      setTrading(false)
+    }
+  }
+
   const buy = async (side: Side) => {
     const v = parseFloat(amount)
     if (isNaN(v) || v <= 0) {
@@ -156,14 +261,16 @@ export function MarketCardV4() {
       setError('Connect wallet first')
       return
     }
+    if (!hasAllowance) {
+      setError('Enable trading first (click button below)')
+      return
+    }
 
     setTrading(true)
     setError(null)
 
-    const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
     const [bpAddr, bpName] = BITPREDIX_CONTRACT.split('.')
-
-    if (!tokenAddr || !tokenName || !bpAddr || !bpName) {
+    if (!bpAddr || !bpName) {
       setError('Contract not configured')
       setTrading(false)
       return
@@ -172,23 +279,6 @@ export function MarketCardV4() {
     const amountMicro = Math.round(v * 1e6) // 6 decimais
 
     try {
-      // Primeiro: approve
-      await new Promise<void>((resolve, reject) => {
-        openContractCall({
-          contractAddress: tokenAddr,
-          contractName: tokenName,
-          functionName: 'approve',
-          functionArgs: [
-            Cl.principal(BITPREDIX_CONTRACT),
-            Cl.uint(amountMicro)
-          ],
-          network: 'testnet',
-          onFinish: () => resolve(),
-          onCancel: () => reject(new Error('Cancelled'))
-        })
-      })
-
-      // Segundo: place-bet
       await new Promise<void>((resolve, reject) => {
         openContractCall({
           contractAddress: bpAddr,
@@ -386,43 +476,68 @@ export function MarketCardV4() {
             <div>
               {isTradingOpen ? (
                 stxAddress ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      {PRESETS.map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setAmount(String(d))}
-                          className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
-                            amount === String(d)
-                              ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
-                              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                          }`}
-                        >
-                          ${d}
-                        </button>
-                      ))}
+                  hasAllowance === false ? (
+                    // Precisa habilitar trading primeiro
+                    <div className="space-y-3">
+                      <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
+                        <p className="font-medium">Enable trading to place bets</p>
+                        <p className="text-xs text-amber-300/70 mt-1">
+                          One-time approval to allow the contract to use your USDCx
+                        </p>
+                      </div>
+                      <button
+                        onClick={enableTrading}
+                        disabled={trading}
+                        className="w-full py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        {trading ? 'Awaiting approval...' : 'Enable Trading'}
+                      </button>
                     </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        placeholder="Custom"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
-                      />
-                      <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
-                    </div>
-                    {hasValidAmount && (
-                      <p className="text-xs text-zinc-500">
-                        Potential win: <span className="text-emerald-400">${(amountNum / upPrice).toFixed(2)}</span> if UP,{' '}
-                        <span className="text-emerald-400">${(amountNum / downPrice).toFixed(2)}</span> if DOWN
+                  ) : checkingAllowance ? (
+                    <div className="flex items-center justify-center min-h-[4.5rem] py-2">
+                      <p className="text-center text-zinc-500 text-sm">
+                        Checking permissions...
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {PRESETS.map((d) => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setAmount(String(d))}
+                            className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
+                              amount === String(d)
+                                ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                            }`}
+                          >
+                            ${d}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="Custom"
+                          value={amount}
+                          onChange={(e) => setAmount(e.target.value)}
+                          className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                        />
+                        <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
+                      </div>
+                      {hasValidAmount && (
+                        <p className="text-xs text-zinc-500">
+                          Potential win: <span className="text-emerald-400">${(amountNum / upPrice).toFixed(2)}</span> if UP,{' '}
+                          <span className="text-emerald-400">${(amountNum / downPrice).toFixed(2)}</span> if DOWN
+                        </p>
+                      )}
+                    </div>
+                  )
                 ) : (
                   <div className="flex items-center justify-center min-h-[4.5rem] py-2">
                     <p className="text-center text-amber-400/90 text-sm">

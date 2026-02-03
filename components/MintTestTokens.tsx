@@ -60,10 +60,22 @@ export function MintTestTokens() {
     refresh()
   }, [refresh])
 
-  // Quando a wallet é conectada noutro componente, re-verificar
+  // Polling para verificar mudanças (conectou/desconectou)
   useEffect(() => {
-    if (stx !== null) return
-    const id = setInterval(refresh, 2500)
+    const id = setInterval(() => {
+      // Se desconectou, limpa estado
+      if (!isConnected()) {
+        setStx(null)
+        setCanMint(null)
+        setBalance('0')
+        setLoading(false)
+        return
+      }
+      // Se conectado mas stx é null, atualiza
+      if (!stx) {
+        refresh()
+      }
+    }, 2500)
     return () => clearInterval(id)
   }, [stx, refresh])
 
