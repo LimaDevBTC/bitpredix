@@ -214,13 +214,16 @@ export function ClaimButton() {
             // Post-conditions: permite que o contrato envie tokens para o usuario
             // Como nao sabemos o valor exato do payout, usamos willSendGte(0)
             const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
+            console.log('[ClaimButton] TOKEN_CONTRACT:', TOKEN_CONTRACT, 'tokenAddr:', tokenAddr, 'tokenName:', tokenName)
 
             // Post-condition: contrato enviara >= 0 tokens (permite qualquer transferencia do contrato)
             const postConditions = tokenAddr && tokenName ? [
               Pc.principal(BITPREDIX_CONTRACT)
-                .willSendGte(0)
+                .willSendGte(1) // Minimo 1 unidade (não 0)
                 .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
             ] : []
+
+            console.log('[ClaimButton] postConditions:', postConditions, 'length:', postConditions.length)
 
             // Chama claim-round no contrato
             const txId = await new Promise<string>((resolve, reject) => {
