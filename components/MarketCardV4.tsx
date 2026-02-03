@@ -2,11 +2,11 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
+import { Cl } from '@stacks/transactions'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import { PriceChart, type PriceDataPoint } from './PriceChart'
-import { usePythPrice, fetchCurrentPrice } from '@/lib/pyth'
+import { usePythPrice } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || ''
@@ -97,73 +97,30 @@ export function MarketCardV4() {
     return () => clearInterval(interval)
   }, [currentPrice])
 
-  // Estado de allowance
-  const [hasAllowance, setHasAllowance] = useState<boolean | null>(null)
-  const [checkingAllowance, setCheckingAllowance] = useState(false)
+  // Estado de allowance (usa localStorage pois test-usdcx não tem get-allowance)
+  const [tradingEnabled, setTradingEnabled] = useState<boolean>(false)
 
   // Busca endereco da carteira
   useEffect(() => {
     const refreshAddress = () => {
       if (!isConnected()) {
         setStxAddress(null)
-        setHasAllowance(null)
         return
       }
       const data = getLocalStorage()
-      setStxAddress(data?.addresses?.stx?.[0]?.address ?? null)
+      const addr = data?.addresses?.stx?.[0]?.address ?? null
+      setStxAddress(addr)
+
+      // Verifica se já habilitou trading (salvo no localStorage)
+      if (addr) {
+        const key = `bitpredix_trading_enabled_${addr}`
+        setTradingEnabled(localStorage.getItem(key) === 'true')
+      }
     }
     refreshAddress()
     const interval = setInterval(refreshAddress, 2500)
     return () => clearInterval(interval)
   }, [])
-
-  // Verifica allowance quando tem endereco
-  const checkAllowance = useCallback(async () => {
-    if (!stxAddress || !TOKEN_CONTRACT || !BITPREDIX_CONTRACT) {
-      setHasAllowance(null)
-      return
-    }
-
-    setCheckingAllowance(true)
-    try {
-      const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
-      if (!tokenAddr || !tokenName) return
-
-      const response = await fetch(
-        `https://api.testnet.hiro.so/v2/contracts/call-read/${tokenAddr}/${tokenName}/get-allowance`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sender: stxAddress,
-            arguments: [
-              cvToHex(Cl.principal(stxAddress)),
-              cvToHex(Cl.principal(BITPREDIX_CONTRACT))
-            ]
-          })
-        }
-      )
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.okay && data.result) {
-          const resultCV = hexToCV(data.result)
-          const resultJSON = cvToJSON(resultCV)
-          const allowance = BigInt(resultJSON?.value?.value || '0')
-          // Se tem pelo menos 1 USD de allowance, considera como habilitado
-          setHasAllowance(allowance >= BigInt(1000000))
-        }
-      }
-    } catch (e) {
-      console.error('[MarketCardV4] Error checking allowance:', e)
-    } finally {
-      setCheckingAllowance(false)
-    }
-  }, [stxAddress])
-
-  useEffect(() => {
-    checkAllowance()
-  }, [checkAllowance])
 
   // Adiciona pontos ao historico de precos
   useEffect(() => {
@@ -221,11 +178,11 @@ export function MarketCardV4() {
           ],
           network: 'testnet',
           onFinish: () => {
-            // Aguarda um pouco e verifica novamente o allowance
-            setTimeout(() => {
-              checkAllowance()
-              resolve()
-            }, 3000)
+            // Salva no localStorage que habilitou trading
+            const key = `bitpredix_trading_enabled_${stxAddress}`
+            localStorage.setItem(key, 'true')
+            setTradingEnabled(true)
+            resolve()
           },
           onCancel: () => reject(new Error('Cancelled'))
         })
@@ -261,7 +218,7 @@ export function MarketCardV4() {
       setError('Connect wallet first')
       return
     }
-    if (!hasAllowance) {
+    if (!tradingEnabled) {
       setError('Enable trading first (click button below)')
       return
     }
@@ -476,7 +433,7 @@ export function MarketCardV4() {
             <div>
               {isTradingOpen ? (
                 stxAddress ? (
-                  hasAllowance === false ? (
+                  !tradingEnabled ? (
                     // Precisa habilitar trading primeiro
                     <div className="space-y-3">
                       <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
@@ -492,12 +449,6 @@ export function MarketCardV4() {
                       >
                         {trading ? 'Awaiting approval...' : 'Enable Trading'}
                       </button>
-                    </div>
-                  ) : checkingAllowance ? (
-                    <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                      <p className="text-center text-zinc-500 text-sm">
-                        Checking permissions...
-                      </p>
                     </div>
                   ) : (
                     <div className="space-y-2">
