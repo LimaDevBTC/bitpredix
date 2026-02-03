@@ -223,7 +223,8 @@ export function ClaimButton() {
                   Cl.uint(prices.priceStart),
                   Cl.uint(prices.priceEnd)
                 ],
-                postConditionMode: 0x01, // Allow mode (0x01) - permite contrato enviar tokens para usuario
+                postConditions: [], // Nenhuma post-condition necessária
+                postConditionMode: 'allow', // Permite contrato enviar tokens para usuario
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)
