@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { connect, disconnect, getLocalStorage, isConnected, request } from '@stacks/connect'
+import { usePendingRounds } from '@/lib/usePendingRounds'
 
 const STORAGE_KEY = '@stacks/connect'
 
@@ -46,7 +47,12 @@ export function ConnectWalletButton() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showDisconnectWarning, setShowDisconnectWarning] = useState(false)
+  const [showConnectNotice, setShowConnectNotice] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const prevAddressRef = useRef<string | null>(null)
+
+  const { pendingRounds, totalAtStake } = usePendingRounds()
 
   const refreshAddress = useCallback(() => {
     if (!isConnected()) {
@@ -61,6 +67,17 @@ export function ConnectWalletButton() {
   useEffect(() => {
     refreshAddress()
   }, [refreshAddress])
+
+  // Mostra notificacao ao reconectar com saldo pendente
+  useEffect(() => {
+    if (stxAddress && !prevAddressRef.current && pendingRounds.length > 0) {
+      setShowConnectNotice(true)
+      // Auto-hide apos 5 segundos
+      const timeout = setTimeout(() => setShowConnectNotice(false), 5000)
+      return () => clearTimeout(timeout)
+    }
+    prevAddressRef.current = stxAddress
+  }, [stxAddress, pendingRounds.length])
 
   useEffect(() => {
     if (!dropdownOpen) return
@@ -86,8 +103,19 @@ export function ConnectWalletButton() {
     }
   }
 
+  const handleDisconnectClick = () => {
+    // Se tem saldo pendente, mostra aviso primeiro
+    if (pendingRounds.length > 0) {
+      setShowDisconnectWarning(true)
+      setDropdownOpen(false)
+    } else {
+      handleDisconnect()
+    }
+  }
+
   const handleDisconnect = () => {
     setDropdownOpen(false)
+    setShowDisconnectWarning(false)
     disconnect()
     setStxAddress(null)
     setError(null)
@@ -95,41 +123,100 @@ export function ConnectWalletButton() {
 
   if (stxAddress) {
     return (
-      <div className="relative flex items-center gap-2" ref={dropdownRef}>
-        <span
-          className="text-zinc-400 font-mono text-sm max-w-[140px] truncate"
-          title={stxAddress}
-        >
-          {truncateAddress(stxAddress)}
-        </span>
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setDropdownOpen((o) => !o)}
-            className="px-3 py-2 rounded-xl bg-up/20 text-up border border-up/40 hover:bg-up/30 hover:border-up/60 font-medium text-sm transition-colors flex items-center gap-1.5"
-            aria-expanded={dropdownOpen}
-            aria-haspopup="true"
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-up shrink-0" aria-hidden />
-            Connected
-          </button>
-          {dropdownOpen && (
-            <div
-              className="absolute right-0 top-full mt-1 min-w-[140px] rounded-xl border border-zinc-800 bg-zinc-900 shadow-lg py-1 z-50"
-              role="menu"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={handleDisconnect}
-                className="w-full px-4 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors rounded-lg mx-1"
-              >
-                Disconnect
-              </button>
+      <>
+        {/* Modal de aviso ao desconectar com saldo pendente */}
+        {showDisconnectWarning && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+              <div className="text-center mb-4">
+                <span className="text-3xl">⚠️</span>
+              </div>
+              <h3 className="text-lg font-semibold text-zinc-100 text-center mb-2">
+                Saldo pendente!
+              </h3>
+              <p className="text-sm text-zinc-400 text-center mb-4">
+                Voce tem <strong className="text-emerald-400">{pendingRounds.length}</strong> round{pendingRounds.length > 1 ? 's' : ''} com{' '}
+                <strong className="text-emerald-400">{totalAtStake.toFixed(2)} USDCx</strong> para claim.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => setShowDisconnectWarning(false)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 font-medium text-sm transition-colors"
+                >
+                  Voltar e fazer CLAIM
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  className="w-full px-4 py-2 rounded-xl bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300 font-medium text-sm transition-colors"
+                >
+                  Sair mesmo assim
+                </button>
+              </div>
             </div>
-          )}
+          </div>
+        )}
+
+        {/* Notificacao ao conectar com saldo pendente */}
+        {showConnectNotice && (
+          <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-2 duration-300">
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 shadow-lg max-w-xs">
+              <div className="flex items-start gap-3">
+                <span className="text-xl">💰</span>
+                <div className="flex-1">
+                  <p className="text-sm text-emerald-300 font-medium">
+                    Voce tem {totalAtStake.toFixed(2)} USDCx pendente!
+                  </p>
+                  <p className="text-xs text-emerald-400/70 mt-1">
+                    Clique em CLAIM para receber.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowConnectNotice(false)}
+                  className="text-zinc-500 hover:text-zinc-300 text-lg leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="relative flex items-center gap-2" ref={dropdownRef}>
+          <span
+            className="text-zinc-400 font-mono text-sm max-w-[140px] truncate"
+            title={stxAddress}
+          >
+            {truncateAddress(stxAddress)}
+          </span>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setDropdownOpen((o) => !o)}
+              className="px-3 py-2 rounded-xl bg-up/20 text-up border border-up/40 hover:bg-up/30 hover:border-up/60 font-medium text-sm transition-colors flex items-center gap-1.5"
+              aria-expanded={dropdownOpen}
+              aria-haspopup="true"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-up shrink-0" aria-hidden />
+              Connected
+            </button>
+            {dropdownOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 min-w-[140px] rounded-xl border border-zinc-800 bg-zinc-900 shadow-lg py-1 z-50"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleDisconnectClick}
+                  className="w-full px-4 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors rounded-lg mx-1"
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 

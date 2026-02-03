@@ -1,9 +1,10 @@
 import Link from 'next/link'
-import { MarketCard } from '@/components/MarketCard'
+import { MarketCardV4 } from '@/components/MarketCardV4'
 import { TradingViewBtcChart } from '@/components/TradingViewBtcChart'
 import { TradingViewTechnicalAnalysis } from '@/components/TradingViewTechnicalAnalysis'
 import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrapper'
 import { MintTestTokensWrapper } from '@/components/MintTestTokensWrapper'
+import { ClaimButtonWrapper } from '@/components/ClaimButtonWrapper'
 
 export default function Home() {
   return (
@@ -15,6 +16,7 @@ export default function Home() {
             <span className="text-zinc-100">predix</span>
           </Link>
           <div className="flex items-center gap-2 flex-wrap">
+            <ClaimButtonWrapper />
             <MintTestTokensWrapper />
             <ConnectWalletButtonWrapper />
           </div>
@@ -26,7 +28,7 @@ export default function Home() {
           </div>
         </section>
 
-        <MarketCard />
+        <MarketCardV4 />
 
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 overflow-hidden">
           <TradingViewTechnicalAnalysis />
