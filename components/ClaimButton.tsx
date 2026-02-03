@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
+import { Cl, cvToJSON, hexToCV, cvToHex, Pc, FungibleConditionCode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
@@ -210,9 +210,19 @@ export function ClaimButton() {
 
             setClaimProgress(`Enviando claim ${processed + 1} de ${pendingRounds.length}...`)
 
+            // Post-conditions: permite que o contrato envie tokens para o usuario
+            // Como nao sabemos o valor exato do payout, usamos willSendGte(0)
+            const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || ''
+            const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
+
+            // Post-condition: contrato enviara >= 0 tokens (permite qualquer transferencia do contrato)
+            const postConditions = tokenAddr && tokenName ? [
+              Pc.principal(BITPREDIX_CONTRACT)
+                .willSendGte(0)
+                .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
+            ] : []
+
             // Chama claim-round no contrato
-            // Usa PostConditionMode.Allow porque o contrato envia tokens PARA o usuario (nao do usuario)
-            // Sem isso, a carteira bloqueia a tx por "token moved but not checked"
             const txId = await new Promise<string>((resolve, reject) => {
               openContractCall({
                 contractAddress: contractAddr,
@@ -223,8 +233,7 @@ export function ClaimButton() {
                   Cl.uint(prices.priceStart),
                   Cl.uint(prices.priceEnd)
                 ],
-                postConditions: [], // Nenhuma post-condition necessária
-                postConditionMode: 'allow', // Permite contrato enviar tokens para usuario
+                postConditions, // Post-conditions explicitas para permitir transferencia
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)
