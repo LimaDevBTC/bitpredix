@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { getLocalStorage, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV } from '@stacks/transactions'
+import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
 
@@ -56,7 +56,7 @@ export function usePendingRounds(): UsePendingRoundsResult {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sender: stxAddress,
-            arguments: [Cl.serialize(Cl.principal(stxAddress)).toString('hex')]
+            arguments: [cvToHex(Cl.principal(stxAddress))]
           })
         }
       )
@@ -101,8 +101,8 @@ export function usePendingRounds(): UsePendingRoundsResult {
               body: JSON.stringify({
                 sender: stxAddress,
                 arguments: [
-                  Cl.serialize(Cl.uint(roundId)).toString('hex'),
-                  Cl.serialize(Cl.principal(stxAddress)).toString('hex')
+                  cvToHex(Cl.uint(roundId)),
+                  cvToHex(Cl.principal(stxAddress))
                 ]
               })
             }
