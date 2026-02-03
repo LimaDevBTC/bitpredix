@@ -193,7 +193,18 @@ export function ClaimButton() {
 
           try {
             // Busca precos do Pyth para este round
-            const prices = await getRoundPrices(round.roundId)
+            setClaimProgress(`Buscando precos round ${round.roundId}...`)
+            let prices
+            try {
+              prices = await getRoundPrices(round.roundId)
+            } catch (priceError) {
+              console.error(`[ClaimButton] Failed to get prices for round ${round.roundId}:`, priceError)
+              setClaimProgress(`Precos indisponiveis para round ${round.roundId}, pulando...`)
+              processed++
+              continue // Skip this round if we can't get prices
+            }
+
+            setClaimProgress(`Enviando claim ${processed + 1} de ${pendingRounds.length}...`)
 
             // Chama claim-round no contrato
             await new Promise<void>((resolve, reject) => {
@@ -227,8 +238,11 @@ export function ClaimButton() {
       }
 
       setClaimProgress(null)
-      // Atualiza lista de pendentes
-      setTimeout(fetchPendingRounds, 3000)
+      // Atualiza lista de pendentes e saldo
+      setTimeout(() => {
+        fetchPendingRounds()
+        window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
+      }, 3000)
     } catch (e) {
       console.error('[ClaimButton] Claim error:', e)
       setError(e instanceof Error ? e.message : 'Claim failed')

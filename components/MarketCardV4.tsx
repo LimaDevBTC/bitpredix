@@ -268,6 +268,9 @@ export function MarketCardV4() {
       setLastTrade({ side, shares: v })
       setAmount('')
 
+      // Dispara evento para atualizar saldo em outros componentes
+      window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
+
       if (lastTradeTimeoutRef.current) clearTimeout(lastTradeTimeoutRef.current)
       lastTradeTimeoutRef.current = setTimeout(() => setLastTrade(null), 5000)
 

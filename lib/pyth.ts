@@ -124,46 +124,39 @@ export async function fetchCurrentPrice(): Promise<PythPrice> {
 }
 
 // ============================================================================
-// FUNCOES DE PRECO HISTORICO (Benchmarks)
+// FUNCOES DE PRECO HISTORICO (Benchmarks via API proxy)
 // ============================================================================
 
 /**
  * Busca o preco em um timestamp especifico
- * Usado para resolver rounds
+ * Usa API proxy para evitar CORS
  *
  * @param timestamp Unix timestamp em segundos
  * @returns Preco em USD
  */
 export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice> {
-  // Pyth Benchmarks usa a TradingView API
-  // resolution=1 = candles de 1 minuto
-  const from = timestamp - 60
-  const to = timestamp
-
-  const url = `${BENCHMARKS_URL}/v1/shims/tradingview/history?` +
-    `symbol=Crypto.BTC/USD&resolution=1&from=${from}&to=${to}`
+  // Usa proxy local para evitar CORS
+  const url = `/api/pyth-price?timestamp=${timestamp}`
 
   const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch historical price: ${response.status}`)
-  }
-
   const data = await response.json()
 
-  // Resposta no formato TradingView: { c: [close prices], t: [timestamps], ... }
-  if (!data.c || data.c.length === 0) {
-    throw new Error('No historical price data available')
+  if (!response.ok || !data.ok) {
+    // Se nao tem dados historicos, tenta usar preco atual como fallback
+    // Isso permite testar mesmo com rounds muito recentes
+    if (data.noData) {
+      console.warn(`[Pyth] No historical data for ${timestamp}, using current price as fallback`)
+      const current = await fetchCurrentPrice()
+      return current
+    }
+    throw new Error(data.error || `Failed to fetch historical price: ${response.status}`)
   }
 
-  // Pega o ultimo candle (mais proximo do timestamp solicitado)
-  const closePrice = data.c[data.c.length - 1]
-  const closeTime = data.t[data.t.length - 1]
-
   return {
-    price: closePrice,
-    confidence: 0, // Benchmarks nao retorna confidence
-    timestamp: closeTime,
-    expo: 0 // Ja vem em USD
+    price: data.lastPrice,
+    confidence: 0,
+    timestamp: data.lastTimestamp,
+    expo: 0
   }
 }
 

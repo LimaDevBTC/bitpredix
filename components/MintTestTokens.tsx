@@ -87,6 +87,18 @@ export function MintTestTokens() {
     return () => clearInterval(id)
   }, [stx, refresh])
 
+  // Escuta eventos de mudança de saldo (após apostas, claims, etc)
+  useEffect(() => {
+    const handleBalanceChanged = () => {
+      // Espera um pouco para a transação ser confirmada na rede
+      setTimeout(() => {
+        refresh()
+      }, 3000)
+    }
+    window.addEventListener('bitpredix:balance-changed', handleBalanceChanged)
+    return () => window.removeEventListener('bitpredix:balance-changed', handleBalanceChanged)
+  }, [refresh])
+
   if (!CONTRACT_ID) return null
   if (!isConnected() || !stx) return null
 
