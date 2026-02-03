@@ -248,53 +248,42 @@ interface UsePythPriceResult {
 
 /**
  * Hook React para preco BTC em tempo real via Pyth
+ * Usa HTTP polling (mais confiável que SSE que tem problemas de CORS)
  */
 export function usePythPrice(): UsePythPriceResult {
   const [price, setPrice] = useState<number | null>(null)
   const [timestamp, setTimestamp] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const closeRef = useRef<(() => void) | null>(null)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  const connect = useCallback(() => {
-    setError(null)
-
-    const close = subscribeToPythPrice(
-      (newPrice, newTimestamp) => {
-        setPrice(newPrice)
-        setTimestamp(newTimestamp)
-        setLoading(false)
-        setError(null)
-      },
-      (err) => {
-        setError(err.message)
-        // Tenta reconectar apos 3 segundos
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current)
-        }
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('[Pyth] Reconnecting...')
-          connect()
-        }, 3000)
-      }
-    )
-
-    closeRef.current = close
+  const fetchPrice = useCallback(async () => {
+    try {
+      const data = await fetchCurrentPrice()
+      setPrice(data.price)
+      setTimestamp(data.timestamp)
+      setLoading(false)
+      setError(null)
+    } catch (e) {
+      console.error('[Pyth] Error fetching price:', e)
+      setError(e instanceof Error ? e.message : 'Failed to fetch price')
+      // Não seta loading false em erro para manter estado anterior
+    }
   }, [])
 
   useEffect(() => {
-    connect()
+    // Busca inicial
+    fetchPrice()
+
+    // Polling a cada 1 segundo
+    intervalRef.current = setInterval(fetchPrice, 1000)
 
     return () => {
-      if (closeRef.current) {
-        closeRef.current()
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
       }
     }
-  }, [connect])
+  }, [fetchPrice])
 
   return { price, timestamp, loading, error }
 }
