@@ -106,9 +106,9 @@ export function usePendingRounds(): UsePendingRoundsResult {
                 ]
               })
             }
-          )
+          ).catch(() => null) // Silently handle network errors
 
-          if (betResponse.ok) {
+          if (betResponse && betResponse.ok) {
             const betData = await betResponse.json()
             if (betData.okay && betData.result) {
               const betCV = hexToCV(betData.result)
@@ -125,8 +125,8 @@ export function usePendingRounds(): UsePendingRoundsResult {
               }
             }
           }
-        } catch (e) {
-          console.error(`[usePendingRounds] Failed to fetch bet for round ${roundId}:`, e)
+        } catch {
+          // Silently ignore errors fetching individual bets
         }
       }
 

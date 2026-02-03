@@ -108,9 +108,9 @@ export function ClaimButton() {
                 ]
               })
             }
-          )
+          ).catch(() => null) // Silently handle network errors
 
-          if (betResponse.ok) {
+          if (betResponse && betResponse.ok) {
             const betData = await betResponse.json()
             if (betData.okay && betData.result) {
               const betCV = hexToCV(betData.result)
@@ -128,8 +128,8 @@ export function ClaimButton() {
               }
             }
           }
-        } catch (e) {
-          console.error(`[ClaimButton] Failed to fetch bet for round ${roundId}:`, e)
+        } catch {
+          // Silently ignore errors fetching individual bets
         }
       }
 
