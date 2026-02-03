@@ -103,13 +103,14 @@ async function main() {
   // 5. Broadcast
   console.log('📡 Broadcasting transaction...')
 
-  // Serializa a transação para bytes
-  const serializedTx = transaction.serialize()
+  // serialize() retorna uma string hex, converter para bytes
+  const hexTx = transaction.serialize()
+  const binaryTx = Buffer.from(hexTx, 'hex')
 
   // Salva em arquivo temporário
   const tmpFile = '/tmp/stx-deploy-tx.bin'
-  writeFileSync(tmpFile, Buffer.from(serializedTx))
-  console.log(`   Saved ${serializedTx.length} bytes to ${tmpFile}`)
+  writeFileSync(tmpFile, binaryTx)
+  console.log(`   Saved ${binaryTx.length} bytes to ${tmpFile}`)
 
   // Broadcast via curl usando arquivo
   const broadcastResult = execSync(

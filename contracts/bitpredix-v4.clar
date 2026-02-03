@@ -13,7 +13,7 @@
 ;; ----------------------------------------------------------------------------
 
 (define-constant CONTRACT_OWNER tx-sender)
-(define-constant SELF (as-contract tx-sender))
+(define-constant SELF 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v4)
 
 ;; Erros
 (define-constant ERR_UNAUTHORIZED (err u1000))
@@ -135,6 +135,7 @@
 ;; @param price-end: Preco de fechamento em centavos
 (define-public (claim-round (round-id uint) (price-start uint) (price-end uint))
   (let (
+    (user tx-sender)  ;; Captura o usuario no inicio
     (round-end-time (* (+ round-id u1) ROUND_DURATION))
     (round-data (default-to
       { total-up: u0, total-down: u0, price-start: u0, price-end: u0, resolved: false }
@@ -173,14 +174,15 @@
       (user-amount (get amount bet-data))
     )
       ;; Marca aposta como claimed
-      (map-set bets { round-id: round-id, user: tx-sender }
+      (map-set bets { round-id: round-id, user: user }
         (merge bet-data { claimed: true })
       )
 
       ;; Remove da lista de pendentes
-      (remove-user-pending-round tx-sender round-id)
+      (remove-user-pending-round user round-id)
 
       ;; Calcula e paga se ganhou
+      ;; Usa transfer-from: test-usdcx permite se from == contract-caller (SELF)
       (if user-won
         (if (> winning-pool u0)
           (let (
@@ -189,11 +191,11 @@
             (fee (/ (* gross-payout FEE_BPS) u10000))
             (net-payout (- gross-payout fee))
           )
-            ;; Transfere premio para o usuario
-            (try! (as-contract (contract-call? TOKEN_CONTRACT transfer net-payout SELF tx-sender none)))
-            ;; Transfere fee
+            ;; Transfere premio para o usuario (SELF -> user)
+            (try! (contract-call? TOKEN_CONTRACT transfer-from SELF user net-payout none))
+            ;; Transfere fee (SELF -> FEE_RECIPIENT)
             (if (> fee u0)
-              (try! (as-contract (contract-call? TOKEN_CONTRACT transfer fee SELF FEE_RECIPIENT none)))
+              (try! (contract-call? TOKEN_CONTRACT transfer-from SELF FEE_RECIPIENT fee none))
               true
             )
             (ok {
@@ -207,7 +209,7 @@
           ;; Edge case: winning pool = 0 (ninguem apostou no lado vencedor)
           ;; Usuario recebe de volta o que apostou
           (begin
-            (try! (as-contract (contract-call? TOKEN_CONTRACT transfer user-amount SELF tx-sender none)))
+            (try! (contract-call? TOKEN_CONTRACT transfer-from SELF user user-amount none))
             (ok {
               won: true,
               payout: user-amount,
