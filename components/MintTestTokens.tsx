@@ -42,13 +42,13 @@ export function MintTestTokens() {
       const r = await fetch(`/api/mint-status?address=${encodeURIComponent(addr)}`)
       const j = await r.json()
       if (!j.ok) {
-        // Se já tem balance anterior, não mostra erro
+        // Se já tem balance anterior, mantém o estado atual
         if (balance !== '0') {
           setLoading(false)
           return
         }
         setError(j.error || 'Falha ao verificar')
-        setCanMint(null)
+        setCanMint(false) // Assume que já mintou para evitar mint duplicado
       } else {
         setCanMint(j.canMint === true)
         setBalance(typeof j.balance === 'string' ? j.balance : '0')
@@ -58,6 +58,7 @@ export function MintTestTokens() {
       // Erro de rede - se já tem balance, ignora silenciosamente
       if (balance === '0') {
         setError('Rede indisponível')
+        setCanMint(false) // Assume que já mintou para evitar mint duplicado
       }
     } finally {
       setLoading(false)
@@ -124,7 +125,9 @@ export function MintTestTokens() {
     )
   }
 
-  if (canMint) {
+  // Só mostra botão de mint se temos certeza que pode mintar (canMint === true)
+  // Se canMint é null (não verificado), assume que já mintou para evitar mint duplicado
+  if (canMint === true) {
     return (
       <button
         type="button"
