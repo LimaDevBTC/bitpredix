@@ -10,15 +10,33 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-950 bg-grid-pattern">
       <div className="w-full max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
-        <header className="flex items-center justify-between gap-3 mb-6 sm:mb-8">
-          <Link href="/" className="font-bold text-xl sm:text-2xl tracking-tight">
-            <span className="text-bitcoin">Bit</span>
-            <span className="text-zinc-100">predix</span>
-          </Link>
-          <div className="flex items-center gap-2 flex-wrap">
-            <ClaimButtonWrapper />
-            <MintTestTokensWrapper />
-            <ConnectWalletButtonWrapper />
+        <header className="mb-6 sm:mb-8">
+          {/* Desktop: uma linha */}
+          <div className="hidden sm:flex sm:items-center sm:justify-between sm:gap-4">
+            <Link href="/" className="font-bold text-2xl tracking-tight shrink-0">
+              <span className="text-bitcoin">Bit</span>
+              <span className="text-zinc-100">predix</span>
+            </Link>
+            <div className="flex items-center gap-3">
+              <ClaimButtonWrapper />
+              <MintTestTokensWrapper />
+              <ConnectWalletButtonWrapper />
+            </div>
+          </div>
+
+          {/* Mobile: duas linhas */}
+          <div className="sm:hidden space-y-2">
+            <div className="flex items-center justify-between">
+              <Link href="/" className="font-bold text-xl tracking-tight">
+                <span className="text-bitcoin">Bit</span>
+                <span className="text-zinc-100">predix</span>
+              </Link>
+              <ConnectWalletButtonWrapper />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <ClaimButtonWrapper />
+              <MintTestTokensWrapper />
+            </div>
           </div>
         </header>
 

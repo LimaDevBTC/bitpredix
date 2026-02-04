@@ -181,9 +181,9 @@ export function ConnectWalletButton() {
           </div>
         )}
 
-        <div className="relative flex items-center gap-2" ref={dropdownRef}>
+        <div className="relative flex items-center gap-1.5 sm:gap-2" ref={dropdownRef}>
           <span
-            className="text-zinc-400 font-mono text-sm max-w-[140px] truncate"
+            className="text-zinc-400 font-mono text-xs sm:text-sm max-w-[80px] sm:max-w-[140px] truncate hidden sm:inline"
             title={stxAddress}
           >
             {truncateAddress(stxAddress)}
@@ -192,12 +192,13 @@ export function ConnectWalletButton() {
             <button
               type="button"
               onClick={() => setDropdownOpen((o) => !o)}
-              className="px-3 py-2 rounded-xl bg-up/20 text-up border border-up/40 hover:bg-up/30 hover:border-up/60 font-medium text-sm transition-colors flex items-center gap-1.5"
+              className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-up/20 text-up border border-up/40 hover:bg-up/30 hover:border-up/60 font-medium text-xs sm:text-sm transition-colors flex items-center gap-1 sm:gap-1.5"
               aria-expanded={dropdownOpen}
               aria-haspopup="true"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-up shrink-0" aria-hidden />
-              Connected
+              <span className="hidden sm:inline">Connected</span>
+              <span className="sm:hidden">{truncateAddress(stxAddress, 4, 3)}</span>
             </button>
             {dropdownOpen && (
               <div
