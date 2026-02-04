@@ -30,6 +30,9 @@ export function ClaimButton() {
   const [error, setError] = useState<string | null>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Cache de rounds que já foram enviados para claim (evita duplicatas)
+  const claimedRoundsRef = useRef<Set<number>>(new Set())
+
   // Busca endereco da carteira
   const refreshAddress = useCallback(() => {
     if (!isConnected()) {
@@ -135,15 +138,21 @@ export function ClaimButton() {
         }
       }
 
-      // Filtra apenas nao-claimed E que ja terminaram
+      // Filtra apenas: nao-claimed, ja terminaram, E nao estao no cache de claims enviados
       const now = Math.floor(Date.now() / 1000) // Unix timestamp em segundos
       const unclaimed = rounds.filter(r => {
         const roundEndTime = (r.roundId + 1) * 60 // Round termina em (roundId + 1) * 60 segundos
         const hasEnded = now > roundEndTime
+        const alreadySubmitted = claimedRoundsRef.current.has(r.roundId)
+
         if (!hasEnded) {
           console.log(`[ClaimButton] Round ${r.roundId} not ended yet (ends at ${roundEndTime}, now ${now})`)
         }
-        return !r.bet.claimed && hasEnded
+        if (alreadySubmitted) {
+          console.log(`[ClaimButton] Round ${r.roundId} already submitted for claim, skipping`)
+        }
+
+        return !r.bet.claimed && hasEnded && !alreadySubmitted
       })
       setPendingRounds(unclaimed)
 
@@ -250,9 +259,11 @@ export function ClaimButton() {
               })
             })
 
-            // Tx foi enviada - remove otimisticamente da lista de pendentes
+            // Tx foi enviada - adiciona ao cache para evitar duplicatas
+            claimedRoundsRef.current.add(round.roundId)
+            // Remove otimisticamente da lista de pendentes
             setPendingRounds(prev => prev.filter(r => r.roundId !== round.roundId))
-            console.log(`[ClaimButton] Round ${round.roundId} removed from pending (optimistic)`)
+            console.log(`[ClaimButton] Round ${round.roundId} removed from pending (added to claimed cache)`)
 
             processed++
           } catch (e) {
