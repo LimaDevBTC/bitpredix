@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { MarketCardV4 } from '@/components/MarketCardV4'
+import { MarketCardV4Wrapper } from '@/components/MarketCardV4Wrapper'
 import { TradingViewBtcChart } from '@/components/TradingViewBtcChart'
 import { TradingViewTechnicalAnalysis } from '@/components/TradingViewTechnicalAnalysis'
 import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrapper'
@@ -46,7 +46,7 @@ export default function Home() {
           </div>
         </section>
 
-        <MarketCardV4 />
+        <MarketCardV4Wrapper />
 
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 overflow-hidden">
           <TradingViewTechnicalAnalysis />
