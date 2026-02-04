@@ -52,11 +52,17 @@ export function ClaimButton() {
 
   // Busca rounds pendentes do contrato
   const fetchPendingRounds = useCallback(async () => {
-    if (!stxAddress || !BITPREDIX_CONTRACT) return
+    if (!stxAddress || !BITPREDIX_CONTRACT) {
+      setPendingRounds([])
+      setTotalClaimable(0)
+      return
+    }
 
     try {
       const [contractAddr, contractName] = BITPREDIX_CONTRACT.split('.')
       if (!contractAddr || !contractName) return
+
+      console.log('[ClaimButton] Fetching pending rounds for', stxAddress)
 
       // Chama get-user-pending-rounds via proxy (evita CORS)
       const response = await fetch('/api/stacks-read', {
@@ -71,14 +77,19 @@ export function ClaimButton() {
       }).catch(() => null) // Silently handle network errors
 
       if (!response || !response.ok) {
-        // Network error - silently ignore, will retry
+        // Network error - limpa estado e retry depois
+        console.log('[ClaimButton] Network error fetching pending rounds')
         return
       }
 
       const data = await response.json()
+      console.log('[ClaimButton] get-user-pending-rounds response:', data)
 
       if (!data.okay || !data.result) {
-        // Invalid response - silently ignore
+        // Invalid response - limpa estado
+        console.log('[ClaimButton] Invalid response, clearing pending rounds')
+        setPendingRounds([])
+        setTotalClaimable(0)
         return
       }
 
