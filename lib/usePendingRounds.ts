@@ -128,8 +128,16 @@ export function usePendingRounds(): UsePendingRoundsResult {
         }
       }
 
-      setPendingRounds(rounds)
-      setTotalAtStake(total / 1e6) // Converte para USD
+      // Filtra apenas rounds que ja terminaram (podem ser claimados)
+      const now = Math.floor(Date.now() / 1000)
+      const endedRounds = rounds.filter(r => {
+        const roundEndTime = (r.roundId + 1) * 60
+        return now > roundEndTime
+      })
+
+      setPendingRounds(endedRounds)
+      const endedTotal = endedRounds.reduce((sum, r) => sum + r.amount, 0)
+      setTotalAtStake(endedTotal / 1e6) // Converte para USD
     } catch (e) {
       console.error('[usePendingRounds] Error:', e)
     } finally {

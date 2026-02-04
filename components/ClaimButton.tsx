@@ -135,8 +135,16 @@ export function ClaimButton() {
         }
       }
 
-      // Filtra apenas nao-claimed
-      const unclaimed = rounds.filter(r => !r.bet.claimed)
+      // Filtra apenas nao-claimed E que ja terminaram
+      const now = Math.floor(Date.now() / 1000) // Unix timestamp em segundos
+      const unclaimed = rounds.filter(r => {
+        const roundEndTime = (r.roundId + 1) * 60 // Round termina em (roundId + 1) * 60 segundos
+        const hasEnded = now > roundEndTime
+        if (!hasEnded) {
+          console.log(`[ClaimButton] Round ${r.roundId} not ended yet (ends at ${roundEndTime}, now ${now})`)
+        }
+        return !r.bet.claimed && hasEnded
+      })
       setPendingRounds(unclaimed)
 
       // Calcula total estimado (simplificado - assume 50% de chance de ganho)
