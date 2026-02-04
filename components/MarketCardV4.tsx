@@ -97,30 +97,67 @@ export function MarketCardV4() {
     return () => clearInterval(interval)
   }, [currentPrice])
 
-  // Estado de allowance (usa localStorage pois test-usdcx não tem get-allowance)
-  const [tradingEnabled, setTradingEnabled] = useState<boolean>(false)
+  // Estado de allowance (verifica no blockchain via API)
+  const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(null)
+  const [checkingAllowance, setCheckingAllowance] = useState(false)
+
+  // Verifica allowance no blockchain
+  const checkAllowance = useCallback(async (addr: string) => {
+    if (!addr || !BITPREDIX_CONTRACT) {
+      setTradingEnabled(false)
+      return
+    }
+
+    setCheckingAllowance(true)
+    try {
+      const response = await fetch(`/api/allowance-status?address=${encodeURIComponent(addr)}`)
+      const data = await response.json()
+
+      console.log('[MarketCardV4] Allowance check:', data)
+
+      if (data.ok) {
+        setTradingEnabled(data.hasAllowance === true)
+        // Também salva no localStorage como cache
+        const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
+        if (data.hasAllowance) {
+          localStorage.setItem(key, 'true')
+        }
+      } else {
+        // API falhou - usa localStorage como fallback
+        const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
+        setTradingEnabled(localStorage.getItem(key) === 'true')
+      }
+    } catch {
+      // Erro de rede - usa localStorage como fallback
+      const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
+      setTradingEnabled(localStorage.getItem(key) === 'true')
+    } finally {
+      setCheckingAllowance(false)
+    }
+  }, [])
 
   // Busca endereco da carteira
   useEffect(() => {
     const refreshAddress = () => {
       if (!isConnected()) {
         setStxAddress(null)
+        setTradingEnabled(false)
         return
       }
       const data = getLocalStorage()
       const addr = data?.addresses?.stx?.[0]?.address ?? null
-      setStxAddress(addr)
 
-      // Verifica se já habilitou trading para ESTE contrato (salvo no localStorage)
-      if (addr && BITPREDIX_CONTRACT) {
-        const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
-        setTradingEnabled(localStorage.getItem(key) === 'true')
+      if (addr !== stxAddress) {
+        setStxAddress(addr)
+        if (addr) {
+          checkAllowance(addr)
+        }
       }
     }
     refreshAddress()
     const interval = setInterval(refreshAddress, 2500)
     return () => clearInterval(interval)
-  }, [])
+  }, [stxAddress, checkAllowance])
 
   // Adiciona pontos ao historico de precos
   useEffect(() => {
@@ -178,10 +215,14 @@ export function MarketCardV4() {
           ],
           network: 'testnet',
           onFinish: () => {
-            // Salva no localStorage que habilitou trading para ESTE contrato
+            // Salva no localStorage como cache imediato
             const key = `bitpredix_trading_enabled_${stxAddress}_${BITPREDIX_CONTRACT}`
             localStorage.setItem(key, 'true')
             setTradingEnabled(true)
+            // Re-verifica no blockchain após alguns segundos
+            setTimeout(() => {
+              if (stxAddress) checkAllowance(stxAddress)
+            }, 5000)
             resolve()
           },
           onCancel: () => reject(new Error('Cancelled'))
@@ -445,7 +486,15 @@ export function MarketCardV4() {
             <div>
               {isTradingOpen ? (
                 stxAddress ? (
-                  !tradingEnabled ? (
+                  checkingAllowance ? (
+                    // Verificando allowance
+                    <div className="flex items-center justify-center min-h-[4.5rem] py-2">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <div className="h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm">Checking approval status...</span>
+                      </div>
+                    </div>
+                  ) : tradingEnabled !== true ? (
                     // Precisa habilitar trading primeiro
                     <div className="space-y-3">
                       <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">

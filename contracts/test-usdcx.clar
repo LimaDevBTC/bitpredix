@@ -98,3 +98,7 @@
 ;; ---- get-minted(who): u0 ou MINT_AMOUNT (para UI) ----
 (define-read-only (get-minted (who principal))
   (default-to u0 (map-get? minted { who: who })))
+
+;; ---- get-allowance(owner, spender): allowance atual ----
+(define-read-only (get-allowance (owner principal) (spender principal))
+  (default-to u0 (map-get? allowances { owner: owner, spender: spender })))

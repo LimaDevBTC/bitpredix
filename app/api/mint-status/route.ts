@@ -47,8 +47,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    const { Cl, cvToHex, hexToCV } = await import('@stacks/transactions')
+    const { Cl, cvToHex, hexToCV, cvToJSON } = await import('@stacks/transactions')
     const argHex = cvToHex(Cl.principal(address))
+
+    console.log(`[mint-status] Checking for address: ${address}`)
 
     // Busca minted e balance em paralelo
     const [mintedResult, balanceResult] = await Promise.allSettled([
@@ -62,33 +64,53 @@ export async function GET(req: Request) {
 
     if (mintedResult.status === 'fulfilled') {
       const json = mintedResult.value as { okay?: boolean; result?: string; cause?: string }
+      console.log('[mint-status] get-minted raw response:', JSON.stringify(json))
+
       if (json.okay && typeof json.result === 'string') {
         const cv = hexToCV(json.result)
-        const v = (cv as unknown as { value?: bigint | number | string }).value
-        minted = v == null ? BigInt(0) : typeof v === 'bigint' ? v : BigInt(Number(v))
+        const cvJson = cvToJSON(cv)
+        console.log('[mint-status] get-minted parsed:', JSON.stringify(cvJson))
+
+        // get-minted retorna uint diretamente (não wrapped em ok/err)
+        const v = cvJson?.value
+        minted = v == null ? BigInt(0) : BigInt(String(v))
         canMint = minted === BigInt(0)
+
+        console.log(`[mint-status] minted=${minted}, canMint=${canMint}`)
       }
+    } else {
+      console.error('[mint-status] get-minted failed:', mintedResult.reason)
     }
 
     // Parse balance
     let balance = '0'
     if (balanceResult.status === 'fulfilled') {
       const jBalance = balanceResult.value as { okay?: boolean; result?: string }
+      console.log('[mint-status] get-balance raw response:', JSON.stringify(jBalance))
+
       if (jBalance.okay && typeof jBalance.result === 'string') {
         try {
-          const cvBal = hexToCV(jBalance.result) as { type?: string; value?: { value?: bigint } | bigint }
-          if (cvBal?.type === 'ok' && cvBal.value != null) {
-            const v = (cvBal.value as { value?: bigint })?.value
+          const cvBal = hexToCV(jBalance.result)
+          const cvBalJson = cvToJSON(cvBal)
+          console.log('[mint-status] get-balance parsed:', JSON.stringify(cvBalJson))
+
+          // get-balance retorna (ok uint) - precisamos extrair o valor
+          if (cvBalJson?.type === 'ok' && cvBalJson.value != null) {
+            const v = cvBalJson.value?.value ?? cvBalJson.value
             balance = v != null ? String(v) : '0'
-          } else if (cvBal?.type === 'uint') {
-            const v = (cvBal.value as bigint) ?? (cvBal.value as { value?: bigint })?.value
-            balance = v != null ? String(v) : '0'
+          } else if (cvBalJson?.type === 'uint') {
+            balance = String(cvBalJson.value ?? '0')
           }
-        } catch {
+        } catch (e) {
+          console.error('[mint-status] balance parse error:', e)
           balance = '0'
         }
       }
+    } else {
+      console.error('[mint-status] get-balance failed:', balanceResult.reason)
     }
+
+    console.log(`[mint-status] Final result: minted=${minted}, canMint=${canMint}, balance=${balance}`)
 
     return NextResponse.json({
       minted: String(minted),
