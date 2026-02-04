@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID
+const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const HIRO_TESTNET = 'https://api.testnet.hiro.so'
 
 function parseContractId(id: string): [string, string] {
@@ -36,13 +36,6 @@ export async function GET(req: Request) {
     return NextResponse.json(
       { error: 'Missing or invalid address', ok: false },
       { status: 400 }
-    )
-  }
-
-  if (!CONTRACT_ID) {
-    return NextResponse.json(
-      { error: 'NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID not configured', ok: false },
-      { status: 500 }
     )
   }
 

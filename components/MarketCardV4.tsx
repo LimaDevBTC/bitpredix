@@ -8,8 +8,8 @@ import { Countdown } from './Countdown'
 import { PriceChart, type PriceDataPoint } from './PriceChart'
 import { usePythPrice } from '@/lib/pyth'
 
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
-const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || ''
+const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
+const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_APPROVE_AMOUNT = BigInt('1000000000000') // 1 million USD (6 decimals)
 
 type Side = 'UP' | 'DOWN'

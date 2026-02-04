@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 const HIRO_TESTNET = 'https://api.testnet.hiro.so'
-const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
+const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
+const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
 const FETCH_TIMEOUT = 10000
 
 /**
@@ -104,6 +104,8 @@ export async function GET(req: Request) {
     })
     const keyHex = cvToHex(keyCV)
 
+    console.log('[allowance-status] Reading map with key:', keyHex)
+
     const controller2 = new AbortController()
     const timeoutId2 = setTimeout(() => controller2.abort(), FETCH_TIMEOUT)
 
@@ -112,7 +114,8 @@ export async function GET(req: Request) {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(keyHex),
+        // Hiro API expects hex string directly (with quotes) in JSON body
+        body: `"${keyHex}"`,
         signal: controller2.signal
       }
     )
@@ -120,7 +123,8 @@ export async function GET(req: Request) {
     clearTimeout(timeoutId2)
 
     if (!mapResponse.ok) {
-      console.error('[allowance-status] Map read failed:', mapResponse.status)
+      const errorText = await mapResponse.text()
+      console.error('[allowance-status] Map read failed:', mapResponse.status, errorText)
       return NextResponse.json(
         { error: `Hiro API error: ${mapResponse.status}`, ok: false },
         { status: 502 }
@@ -128,12 +132,13 @@ export async function GET(req: Request) {
     }
 
     const mapData = await mapResponse.json()
-    console.log('[allowance-status] map_entry response:', mapData)
+    console.log('[allowance-status] map_entry response:', JSON.stringify(mapData))
 
     // Se o map entry existe, parsea o valor
     if (mapData.data) {
       const cv = hexToCV(mapData.data)
       const json = cvToJSON(cv)
+      console.log('[allowance-status] Parsed map value:', JSON.stringify(json))
 
       // O valor no map é um uint (some) ou none
       let allowance = '0'
@@ -141,9 +146,12 @@ export async function GET(req: Request) {
         allowance = String(json.value.value)
       } else if (json?.type === 'uint') {
         allowance = String(json.value)
+      } else if (json?.value != null) {
+        allowance = String(json.value)
       }
 
       const allowanceNum = BigInt(allowance)
+      console.log('[allowance-status] Final allowance:', allowance, 'hasAllowance:', allowanceNum > BigInt(0))
 
       return NextResponse.json({
         allowance,
@@ -153,6 +161,7 @@ export async function GET(req: Request) {
     }
 
     // Map entry não existe = allowance 0
+    console.log('[allowance-status] No map entry found, allowance = 0')
     return NextResponse.json({
       allowance: '0',
       hasAllowance: false,
