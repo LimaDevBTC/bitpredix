@@ -5,7 +5,7 @@ console.log('🔥 ClaimButton LOADED - version v2024-02-03-A 🔥')
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex, Pc, FungibleConditionCode } from '@stacks/transactions'
+import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
@@ -214,19 +214,10 @@ export function ClaimButton() {
 
             setClaimProgress(`Enviando claim ${processed + 1} de ${pendingRounds.length}...`)
 
-            // Post-conditions: permite que o contrato envie tokens para o usuario
-            // Como nao sabemos o valor exato do payout, usamos willSendGte(0)
-            const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
-            console.log('[ClaimButton] TOKEN_CONTRACT:', TOKEN_CONTRACT, 'tokenAddr:', tokenAddr, 'tokenName:', tokenName)
-
-            // Post-condition: contrato enviara >= 0 tokens (permite qualquer transferencia do contrato)
-            const postConditions = tokenAddr && tokenName ? [
-              Pc.principal(BITPREDIX_CONTRACT)
-                .willSendGte(1) // Minimo 1 unidade (não 0)
-                .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
-            ] : []
-
-            console.log('[ClaimButton] postConditions:', postConditions, 'length:', postConditions.length)
+            // Nota: Não usamos post-conditions para claim porque:
+            // - Se ganhou: contrato envia tokens para nós (não precisamos proteger)
+            // - Se perdeu: contrato não envia nada (payout = 0)
+            // Post-condition com willSendGte(1) falha quando payout = 0
 
             // Chama claim-round no contrato
             const txId = await new Promise<string>((resolve, reject) => {
@@ -239,7 +230,7 @@ export function ClaimButton() {
                   Cl.uint(prices.priceStart),
                   Cl.uint(prices.priceEnd)
                 ],
-                postConditions, // Post-conditions explicitas para permitir transferencia
+                // Sem post-conditions - estamos recebendo tokens, não enviando
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)
