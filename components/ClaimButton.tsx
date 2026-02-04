@@ -5,7 +5,7 @@ console.log('🔥 ClaimButton LOADED - version v2024-02-03-A 🔥')
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
+import { Cl, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
@@ -138,7 +138,7 @@ export function ClaimButton() {
                   bet: {
                     side: betJSON.value.side?.value || '',
                     amount: parseInt(betJSON.value.amount?.value || '0'),
-                    claimed: betJSON.value.claimed?.value === 'true'
+                    claimed: betJSON.value.claimed?.value === true
                   }
                 })
               }
@@ -248,7 +248,7 @@ export function ClaimButton() {
             // Post-condition com willSendGte(1) falha quando payout = 0
 
             // Chama claim-round no contrato
-            const txId = await new Promise<string>((resolve, reject) => {
+            await new Promise<string>((resolve, reject) => {
               openContractCall({
                 contractAddress: contractAddr,
                 contractName: contractName,
@@ -258,7 +258,8 @@ export function ClaimButton() {
                   Cl.uint(prices.priceStart),
                   Cl.uint(prices.priceEnd)
                 ],
-                // Sem post-conditions - estamos recebendo tokens, não enviando
+                // IMPORTANTE: Allow mode para permitir que o contrato envie tokens para nós
+                postConditionMode: PostConditionMode.Allow,
                 network: 'testnet',
                 onFinish: (data) => {
                   console.log('[ClaimButton] Claim tx submitted:', data.txId)

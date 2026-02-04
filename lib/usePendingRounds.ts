@@ -112,7 +112,7 @@ export function usePendingRounds(): UsePendingRoundsResult {
               const betCV = hexToCV(betData.result)
               const betJSON = cvToJSON(betCV)
 
-              if (betJSON?.value && betJSON.value.claimed?.value !== 'true') {
+              if (betJSON?.value && betJSON.value.claimed?.value !== true) {
                 const amount = parseInt(betJSON.value.amount?.value || '0')
                 rounds.push({
                   roundId,

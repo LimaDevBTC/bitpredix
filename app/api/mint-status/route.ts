@@ -51,6 +51,32 @@ export async function GET(req: Request) {
       callContract(CONTRACT_ID, 'get-balance', [argHex], address)
     ])
 
+    // Helper para extrair valor uint de cvToJSON (que pode retornar formatos diferentes)
+    function extractUintValue(cvJson: Record<string, unknown>): string {
+      if (!cvJson) return '0'
+      // Caso 1: { type: 'uint', value: '123' }
+      if (cvJson.type === 'uint' && cvJson.value != null) {
+        return String(cvJson.value)
+      }
+      // Caso 2: { type: '(response ...)', success: true, value: { type: 'uint', value: '123' } }
+      if ((cvJson.success === true || cvJson.type === 'ok') && cvJson.value != null) {
+        const inner = cvJson.value as Record<string, unknown>
+        if (typeof inner === 'object' && inner?.type === 'uint') {
+          return String(inner.value ?? '0')
+        }
+        return String(inner?.value ?? inner ?? '0')
+      }
+      // Caso 3: valor direto
+      if (cvJson.value != null) {
+        const v = cvJson.value
+        if (typeof v === 'object' && (v as Record<string, unknown>)?.value != null) {
+          return String((v as Record<string, unknown>).value)
+        }
+        return String(v)
+      }
+      return '0'
+    }
+
     // Parse minted
     let minted = BigInt(0)
     let canMint = true
@@ -61,12 +87,11 @@ export async function GET(req: Request) {
 
       if (json.okay && typeof json.result === 'string') {
         const cv = hexToCV(json.result)
-        const cvJson = cvToJSON(cv)
+        const cvJson = cvToJSON(cv) as Record<string, unknown>
         console.log('[mint-status] get-minted parsed:', JSON.stringify(cvJson))
 
-        // get-minted retorna uint diretamente (não wrapped em ok/err)
-        const v = cvJson?.value
-        minted = v == null ? BigInt(0) : BigInt(String(v))
+        const mintedStr = extractUintValue(cvJson)
+        minted = mintedStr === '0' ? BigInt(0) : BigInt(mintedStr)
         canMint = minted === BigInt(0)
 
         console.log(`[mint-status] minted=${minted}, canMint=${canMint}`)
@@ -78,26 +103,23 @@ export async function GET(req: Request) {
     // Parse balance
     let balance = '0'
     if (balanceResult.status === 'fulfilled') {
-      const jBalance = balanceResult.value as { okay?: boolean; result?: string }
+      const jBalance = balanceResult.value as { okay?: boolean; result?: string; cause?: string }
       console.log('[mint-status] get-balance raw response:', JSON.stringify(jBalance))
 
       if (jBalance.okay && typeof jBalance.result === 'string') {
         try {
           const cvBal = hexToCV(jBalance.result)
-          const cvBalJson = cvToJSON(cvBal)
+          const cvBalJson = cvToJSON(cvBal) as Record<string, unknown>
           console.log('[mint-status] get-balance parsed:', JSON.stringify(cvBalJson))
 
-          // get-balance retorna (ok uint) - precisamos extrair o valor
-          if (cvBalJson?.type === 'ok' && cvBalJson.value != null) {
-            const v = cvBalJson.value?.value ?? cvBalJson.value
-            balance = v != null ? String(v) : '0'
-          } else if (cvBalJson?.type === 'uint') {
-            balance = String(cvBalJson.value ?? '0')
-          }
+          balance = extractUintValue(cvBalJson)
+          console.log('[mint-status] extracted balance:', balance)
         } catch (e) {
           console.error('[mint-status] balance parse error:', e)
           balance = '0'
         }
+      } else {
+        console.log('[mint-status] get-balance not okay or no result:', jBalance.okay, jBalance.cause)
       }
     } else {
       console.error('[mint-status] get-balance failed:', balanceResult.reason)

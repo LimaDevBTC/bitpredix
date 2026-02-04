@@ -4,11 +4,34 @@ import { useState, useEffect, useCallback } from 'react'
 import { getLocalStorage, isConnected, openContractCall } from '@stacks/connect'
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
+const STORAGE_KEY = 'bitpredix_mint_status'
 
 function parseContractId(id: string): [string, string] {
   const i = id.lastIndexOf('.')
   if (i < 0) return ['', '']
   return [id.slice(0, i), id.slice(i + 1)]
+}
+
+// Salva estado no localStorage para persistir entre reloads
+function saveMintStatus(address: string, hasMinted: boolean, balance: string) {
+  try {
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    data[address] = { hasMinted, balance, timestamp: Date.now() }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  } catch { /* ignore */ }
+}
+
+// Carrega estado do localStorage
+function loadMintStatus(address: string): { hasMinted: boolean; balance: string } | null {
+  try {
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const entry = data[address]
+    // Cache válido por 1 hora
+    if (entry && Date.now() - entry.timestamp < 3600000) {
+      return { hasMinted: entry.hasMinted, balance: entry.balance }
+    }
+  } catch { /* ignore */ }
+  return null
 }
 
 export function MintTestTokens() {
@@ -18,6 +41,8 @@ export function MintTestTokens() {
   const [loading, setLoading] = useState(true)
   const [minting, setMinting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Flag para indicar que já verificamos pelo menos uma vez com sucesso
+  const [verified, setVerified] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!isConnected()) {
@@ -26,6 +51,7 @@ export function MintTestTokens() {
       setBalance('0')
       setLoading(false)
       setError(null)
+      setVerified(false)
       return
     }
     const data = getLocalStorage()
@@ -38,32 +64,45 @@ export function MintTestTokens() {
       return
     }
 
+    // Carrega estado do cache primeiro (para evitar flicker)
+    const cached = loadMintStatus(addr)
+    if (cached) {
+      // Usa cache enquanto não verificou - NUNCA permite mint do cache
+      setBalance(cached.balance)
+      setCanMint(false) // SEMPRE assume que não pode mintar do cache
+    }
+
     try {
       const r = await fetch(`/api/mint-status?address=${encodeURIComponent(addr)}`)
       const j = await r.json()
       if (!j.ok) {
-        // Se já tem balance anterior, mantém o estado atual
-        if (balance !== '0') {
-          setLoading(false)
-          return
-        }
+        // API retornou erro - NUNCA permite mint em caso de erro
         setError(j.error || 'Falha ao verificar')
-        setCanMint(false) // Assume que já mintou para evitar mint duplicado
+        setCanMint(false)
+        // Mantém balance anterior se existir
       } else {
-        setCanMint(j.canMint === true)
-        setBalance(typeof j.balance === 'string' ? j.balance : '0')
+        // Sucesso na verificação
+        setVerified(true)
+        const newBalance = typeof j.balance === 'string' ? j.balance : '0'
+        const newCanMint = j.canMint === true
+
+        setCanMint(newCanMint)
+        setBalance(newBalance)
         setError(null)
+
+        // Salva no cache - hasMinted = true se canMint é false OU se tem balance > 0
+        const hasMinted = !newCanMint || Number(newBalance) > 0
+        saveMintStatus(addr, hasMinted, newBalance)
       }
     } catch {
-      // Erro de rede - se já tem balance, ignora silenciosamente
-      if (balance === '0') {
-        setError('Rede indisponível')
-        setCanMint(false) // Assume que já mintou para evitar mint duplicado
-      }
+      // Erro de rede - NUNCA permite mint em caso de erro
+      setError('Rede indisponível')
+      setCanMint(false)
+      // Mantém balance anterior
     } finally {
       setLoading(false)
     }
-  }, [balance])
+  }, [])
 
   useEffect(() => {
     refresh()
@@ -103,12 +142,30 @@ export function MintTestTokens() {
   if (!CONTRACT_ID) return null
   if (!isConnected() || !stx) return null
 
-  if (loading) {
+  const balanceNum = Number(balance || '0')
+  const hasBalance = balanceNum > 0
+
+  // Carrega cache para verificar se já mintou antes
+  const cached = loadMintStatus(stx)
+  const cachedHasMinted = cached?.hasMinted === true
+
+  // REGRA 1: Se tem saldo > 0, SEMPRE mostra o saldo
+  if (hasBalance) {
     return (
-      <span className="text-zinc-500 text-sm">Verificando mint…</span>
+      <span className="text-zinc-500 text-sm">
+        {(balanceNum / 1e6).toFixed(2)} TUSDC
+      </span>
     )
   }
 
+  // REGRA 2: Se está carregando, mostra loading (nunca botão de mint)
+  if (loading) {
+    return (
+      <span className="text-zinc-500 text-sm">Verificando…</span>
+    )
+  }
+
+  // REGRA 3: Se tem erro, mostra retry (nunca botão de mint)
   if (error) {
     return (
       <button
@@ -125,9 +182,23 @@ export function MintTestTokens() {
     )
   }
 
-  // Só mostra botão de mint se temos certeza que pode mintar (canMint === true)
-  // Se canMint é null (não verificado), assume que já mintou para evitar mint duplicado
-  if (canMint === true) {
+  // REGRA 4: Se o cache indica que já mintou, mostra saldo (nunca botão)
+  if (cachedHasMinted) {
+    return (
+      <span className="text-zinc-500 text-sm">
+        {(balanceNum / 1e6).toFixed(2)} TUSDC
+      </span>
+    )
+  }
+
+  // REGRA 5: Só mostra botão de mint se TODAS as condições são verdadeiras:
+  // - canMint é EXPLICITAMENTE true (não null, não false)
+  // - Não está carregando
+  // - Não tem erro
+  // - Não tem saldo
+  // - Cache não indica que já mintou
+  // - Verificamos com sucesso pelo menos uma vez
+  if (canMint === true && verified) {
     return (
       <button
         type="button"
@@ -144,6 +215,9 @@ export function MintTestTokens() {
             network: 'testnet',
             onFinish: () => {
               setMinting(false)
+              // Marca imediatamente como mintou no cache
+              saveMintStatus(stx, true, '1000000000')
+              setCanMint(false)
               refresh()
             },
             onCancel: () => {
@@ -159,9 +233,10 @@ export function MintTestTokens() {
     )
   }
 
+  // Fallback: mostra saldo (mesmo que seja 0) - NUNCA mostra botão de mint como fallback
   return (
     <span className="text-zinc-500 text-sm">
-      {(Number(balance || '0') / 1e6).toFixed(2)} TUSDC
+      {(balanceNum / 1e6).toFixed(2)} TUSDC
     </span>
   )
 }

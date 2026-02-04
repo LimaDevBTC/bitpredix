@@ -77,22 +77,49 @@ export async function GET(req: Request) {
     const mapData = await mapResponse.json()
     console.log('[allowance-status] map_entry response:', JSON.stringify(mapData))
 
+    // Helper para extrair valor uint de cvToJSON
+    function extractUintValue(cvJson: Record<string, unknown>): string {
+      if (!cvJson) return '0'
+      // Caso 1: { type: 'uint', value: '123' }
+      if (cvJson.type === 'uint' && cvJson.value != null) {
+        return String(cvJson.value)
+      }
+      // Caso 2: { type: 'some', value: { type: 'uint', value: '123' } }
+      if (cvJson.type === 'some' && cvJson.value != null) {
+        const inner = cvJson.value as Record<string, unknown>
+        if (typeof inner === 'object' && inner?.type === 'uint') {
+          return String(inner.value ?? '0')
+        }
+        return String(inner?.value ?? inner ?? '0')
+      }
+      // Caso 3: { type: '(response ...)', success: true, value: { type: 'uint', value: '...' } }
+      if ((cvJson.success === true || cvJson.type === 'ok') && cvJson.value != null) {
+        const inner = cvJson.value as Record<string, unknown>
+        if (typeof inner === 'object' && inner?.type === 'uint') {
+          return String(inner.value ?? '0')
+        }
+        return String(inner?.value ?? inner ?? '0')
+      }
+      // Caso 4: valor direto
+      if (cvJson.value != null) {
+        const v = cvJson.value
+        if (typeof v === 'object' && (v as Record<string, unknown>)?.value != null) {
+          return String((v as Record<string, unknown>).value)
+        }
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint') {
+          return String(v)
+        }
+      }
+      return '0'
+    }
+
     // Se o map entry existe, parsea o valor
     if (mapData.data) {
       const cv = hexToCV(mapData.data)
-      const json = cvToJSON(cv)
+      const json = cvToJSON(cv) as Record<string, unknown>
       console.log('[allowance-status] Parsed map value:', JSON.stringify(json))
 
-      // O valor no map é um uint
-      let allowance = '0'
-      if (json?.type === 'some' && json?.value?.value != null) {
-        allowance = String(json.value.value)
-      } else if (json?.type === 'uint') {
-        allowance = String(json.value)
-      } else if (json?.value != null) {
-        allowance = String(json.value)
-      }
-
+      const allowance = extractUintValue(json)
       const allowanceNum = BigInt(allowance)
       console.log('[allowance-status] Final allowance:', allowance, 'hasAllowance:', allowanceNum > BigInt(0))
 
