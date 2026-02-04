@@ -56,12 +56,36 @@ export async function GET(req: Request) {
     // Call Pyth Benchmarks TradingView API
     const url = `${BENCHMARKS_URL}/v1/shims/tradingview/history?symbol=Crypto.BTC/USD&resolution=1&from=${fromTs}&to=${toTs}`
 
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'BitPredix/1.0'
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10s timeout
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'BitPredix/1.0'
+        },
+        signal: controller.signal
+      })
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      // Handle timeout or network error
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        console.error('[pyth-price] Request timeout')
+        return NextResponse.json(
+          { error: 'Request timeout - Pyth API unavailable', ok: false },
+          { status: 504 }
+        )
       }
-    })
+      console.error('[pyth-price] Network error:', fetchError instanceof Error ? fetchError.message : fetchError)
+      return NextResponse.json(
+        { error: 'Network error - unable to reach Pyth API', ok: false },
+        { status: 503 }
+      )
+    }
+
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       console.error(`[pyth-price] Benchmarks API error: ${response.status}`)
@@ -96,7 +120,7 @@ export async function GET(req: Request) {
       lastTimestamp: data.t[data.t.length - 1]
     })
   } catch (e) {
-    console.error('[pyth-price] Error:', e)
+    console.error('[pyth-price] Unexpected error:', e)
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Failed to fetch price', ok: false },
       { status: 500 }
