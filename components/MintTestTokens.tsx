@@ -14,6 +14,7 @@ function parseContractId(id: string): [string, string] {
 
 // Salva estado no localStorage para persistir entre reloads
 function saveMintStatus(address: string, hasMinted: boolean, balance: string) {
+  if (typeof window === 'undefined') return
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     data[address] = { hasMinted, balance, timestamp: Date.now() }
@@ -23,6 +24,7 @@ function saveMintStatus(address: string, hasMinted: boolean, balance: string) {
 
 // Carrega estado do localStorage
 function loadMintStatus(address: string): { hasMinted: boolean; balance: string } | null {
+  if (typeof window === 'undefined') return null
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     const entry = data[address]
