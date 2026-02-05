@@ -41,7 +41,7 @@ export async function GET(req: Request) {
 
   try {
     const { Cl, cvToHex, hexToCV, cvToJSON } = await import('@stacks/transactions')
-    const argHex = cvToHex(Cl.principal(address))
+    const argHex = cvToHex(Cl.standardPrincipal(address))
 
     console.log(`[mint-status] Checking for address: ${address}`)
 

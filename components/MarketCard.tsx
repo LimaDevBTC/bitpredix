@@ -280,7 +280,7 @@ export function MarketCard() {
         contractAddress: txAddr,
         contractName: txName,
         functionName: 'approve',
-        functionArgs: [Cl.principal(bpId), Cl.uint(amountUint)],
+        functionArgs: [Cl.contractPrincipal(bpAddr, bpName), Cl.uint(amountUint)],
         network: 'testnet',
         onFinish: () => {
           openContractCall({

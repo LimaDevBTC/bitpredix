@@ -24,18 +24,20 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Mobile: duas linhas */}
+          {/* Mobile: layout compacto */}
           <div className="sm:hidden space-y-2">
             <div className="flex items-center justify-between">
               <Link href="/" className="font-bold text-xl tracking-tight">
                 <span className="text-bitcoin">Bit</span>
                 <span className="text-zinc-100">predix</span>
               </Link>
-              <ConnectWalletButtonWrapper />
+              <div className="flex items-center gap-2">
+                <MintTestTokensWrapper />
+                <ConnectWalletButtonWrapper />
+              </div>
             </div>
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end">
               <ClaimButtonWrapper />
-              <MintTestTokensWrapper />
             </div>
           </div>
         </header>
@@ -48,7 +50,7 @@ export default function Home() {
 
         <MarketCardV4Wrapper />
 
-        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 overflow-hidden">
+        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 overflow-hidden flex justify-center sm:justify-start">
           <TradingViewTechnicalAnalysis />
         </section>
 

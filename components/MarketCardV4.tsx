@@ -210,7 +210,7 @@ export function MarketCardV4() {
           contractName: tokenName,
           functionName: 'approve',
           functionArgs: [
-            Cl.principal(BITPREDIX_CONTRACT),
+            Cl.contractPrincipal(...BITPREDIX_CONTRACT.split('.') as [string, string]),
             Cl.uint(MAX_APPROVE_AMOUNT)
           ],
           network: 'testnet',

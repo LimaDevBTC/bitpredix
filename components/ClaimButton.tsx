@@ -71,7 +71,7 @@ export function ClaimButton() {
         body: JSON.stringify({
           contractId: BITPREDIX_CONTRACT,
           functionName: 'get-user-pending-rounds',
-          args: [cvToHex(Cl.principal(stxAddress))],
+          args: [cvToHex(Cl.standardPrincipal(stxAddress))],
           sender: stxAddress
         })
       }).catch(() => null) // Silently handle network errors
@@ -120,7 +120,7 @@ export function ClaimButton() {
               functionName: 'get-bet',
               args: [
                 cvToHex(Cl.uint(roundId)),
-                cvToHex(Cl.principal(stxAddress))
+                cvToHex(Cl.standardPrincipal(stxAddress))
               ],
               sender: stxAddress
             })
