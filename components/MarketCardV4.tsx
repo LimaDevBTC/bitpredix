@@ -197,7 +197,8 @@ export function MarketCardV4() {
     setError(null)
 
     const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
-    if (!tokenAddr || !tokenName) {
+    const [bitpredixAddr, bitpredixName] = BITPREDIX_CONTRACT.split('.')
+    if (!tokenAddr || !tokenName || !bitpredixAddr || !bitpredixName) {
       setError('Token contract not configured')
       setTrading(false)
       return
@@ -210,7 +211,7 @@ export function MarketCardV4() {
           contractName: tokenName,
           functionName: 'approve',
           functionArgs: [
-            Cl.contractPrincipal(...BITPREDIX_CONTRACT.split('.') as [string, string]),
+            Cl.contractPrincipal(bitpredixAddr, bitpredixName),
             Cl.uint(MAX_APPROVE_AMOUNT)
           ],
           network: 'testnet',
