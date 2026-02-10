@@ -11,7 +11,6 @@ const {
   makeContractDeploy,
   AnchorMode,
   PostConditionMode,
-  ClarityVersion,
 } = txPkg
 import netPkg from '@stacks/network'
 const { STACKS_TESTNET } = netPkg
@@ -64,8 +63,8 @@ async function main() {
   const nonce = nonceData.possible_next_nonce
   console.log(`   Nonce: ${nonce}`)
 
-  // 4. Cria a transacao de deploy (Clarity v2 para suportar index-of?)
-  console.log('Creating deploy transaction (Clarity v2)...')
+  // 4. Cria a transacao de deploy (sem clarityVersion - SDK usa default da rede)
+  console.log('Creating deploy transaction...')
   const network = STACKS_TESTNET
 
   const txOptions = {
@@ -75,8 +74,7 @@ async function main() {
     network,
     anchorMode: AnchorMode.Any,
     postConditionMode: PostConditionMode.Allow,
-    clarityVersion: ClarityVersion.Clarity2,
-    fee: 100000n, // 0.1 STX
+    fee: 200000n, // 0.2 STX
     nonce: BigInt(nonce),
   }
 
