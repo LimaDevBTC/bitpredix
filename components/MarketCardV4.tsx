@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, Pc } from '@stacks/transactions'
+import { uintCV, contractPrincipalCV, stringAsciiCV, Pc } from '@stacks/transactions'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import { PriceChart, type PriceDataPoint } from './PriceChart'
@@ -108,6 +108,9 @@ export function MarketCardV4() {
       return
     }
 
+    const cacheKey = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
+    const cachedEnabled = localStorage.getItem(cacheKey) === 'true'
+
     setCheckingAllowance(true)
     try {
       const response = await fetch(`/api/allowance-status?address=${encodeURIComponent(addr)}`)
@@ -116,21 +119,25 @@ export function MarketCardV4() {
       console.log('[MarketCardV4] Allowance check:', data)
 
       if (data.ok) {
-        setTradingEnabled(data.hasAllowance === true)
-        // Também salva no localStorage como cache
-        const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
-        if (data.hasAllowance) {
-          localStorage.setItem(key, 'true')
+        if (data.hasAllowance === true) {
+          setTradingEnabled(true)
+          localStorage.setItem(cacheKey, 'true')
+        } else if (cachedEnabled) {
+          // Blockchain diz sem allowance mas cache diz que tem
+          // Provável que a tx de approve ainda não confirmou (testnet ~30-60s)
+          // Mantém trading habilitado pelo cache
+          console.log('[MarketCardV4] Blockchain says no allowance but cache says enabled, trusting cache')
+          setTradingEnabled(true)
+        } else {
+          setTradingEnabled(false)
         }
       } else {
         // API falhou - usa localStorage como fallback
-        const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
-        setTradingEnabled(localStorage.getItem(key) === 'true')
+        setTradingEnabled(cachedEnabled)
       }
     } catch {
       // Erro de rede - usa localStorage como fallback
-      const key = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
-      setTradingEnabled(localStorage.getItem(key) === 'true')
+      setTradingEnabled(cachedEnabled)
     } finally {
       setCheckingAllowance(false)
     }
@@ -150,6 +157,12 @@ export function MarketCardV4() {
       if (addr !== stxAddress) {
         setStxAddress(addr)
         if (addr) {
+          // Usa cache do localStorage imediatamente para evitar flicker
+          const cacheKey = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
+          if (localStorage.getItem(cacheKey) === 'true') {
+            setTradingEnabled(true)
+          }
+          // Depois verifica no blockchain
           checkAllowance(addr)
         }
       }
@@ -211,8 +224,8 @@ export function MarketCardV4() {
           contractName: tokenName,
           functionName: 'approve',
           functionArgs: [
-            Cl.contractPrincipal(bitpredixAddr, bitpredixName),
-            Cl.uint(MAX_APPROVE_AMOUNT)
+            contractPrincipalCV(bitpredixAddr, bitpredixName),
+            uintCV(MAX_APPROVE_AMOUNT)
           ],
           network: 'testnet',
           onFinish: () => {
@@ -220,10 +233,6 @@ export function MarketCardV4() {
             const key = `bitpredix_trading_enabled_${stxAddress}_${BITPREDIX_CONTRACT}`
             localStorage.setItem(key, 'true')
             setTradingEnabled(true)
-            // Re-verifica no blockchain após alguns segundos
-            setTimeout(() => {
-              if (stxAddress) checkAllowance(stxAddress)
-            }, 5000)
             resolve()
           },
           onCancel: () => reject(new Error('Cancelled'))
@@ -278,13 +287,22 @@ export function MarketCardV4() {
     const amountMicro = Math.round(v * 1e6) // 6 decimais
 
     try {
-      // Post-condition: usuário envia exatamente amountMicro de test-usdcx para o contrato
+      // Post-condition: usuário envia no máximo amountMicro de test-usdcx
+      // Pc namespace pode falhar no bundler (mesmo bug do Cl), então usamos try-catch
       const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
-      const postConditions = tokenAddr && tokenName ? [
-        Pc.principal(stxAddress)
-          .willSendLte(amountMicro)
-          .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
-      ] : []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let postConditions: any[] = []
+      try {
+        if (tokenAddr && tokenName) {
+          postConditions = [
+            Pc.principal(stxAddress)
+              .willSendLte(amountMicro)
+              .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
+          ]
+        }
+      } catch (pcError) {
+        console.warn('[MarketCardV4] Post-condition builder failed, proceeding without:', pcError)
+      }
 
       await new Promise<void>((resolve, reject) => {
         openContractCall({
@@ -292,9 +310,9 @@ export function MarketCardV4() {
           contractName: bpName,
           functionName: 'place-bet',
           functionArgs: [
-            Cl.uint(round.id),
-            Cl.stringAscii(side),
-            Cl.uint(amountMicro)
+            uintCV(round.id),
+            stringAsciiCV(side),
+            uintCV(amountMicro)
           ],
           postConditions,
           network: 'testnet',

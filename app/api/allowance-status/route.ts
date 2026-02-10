@@ -36,13 +36,13 @@ export async function GET(req: Request) {
   }
 
   try {
-    const { Cl, cvToHex, hexToCV, cvToJSON } = await import('@stacks/transactions')
+    const { tupleCV, standardPrincipalCV, contractPrincipalCV, cvToHex, hexToCV, cvToJSON } = await import('@stacks/transactions')
 
     // Formato do key: tuple { owner: principal, spender: principal }
     const [spenderAddr, spenderName] = BITPREDIX_CONTRACT.split('.')
-    const keyCV = Cl.tuple({
-      owner: Cl.standardPrincipal(address),
-      spender: Cl.contractPrincipal(spenderAddr, spenderName)
+    const keyCV = tupleCV({
+      owner: standardPrincipalCV(address),
+      spender: contractPrincipalCV(spenderAddr, spenderName)
     })
     const keyHex = cvToHex(keyCV)
 

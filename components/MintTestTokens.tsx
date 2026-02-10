@@ -50,7 +50,7 @@ export function MintTestTokens() {
     if (!isConnected()) {
       setStx(null)
       setCanMint(null)
-      setBalance('0')
+      // NÃO reseta balance — componente já retorna null quando desconectado
       setLoading(false)
       setError(null)
       setVerified(false)
@@ -85,16 +85,20 @@ export function MintTestTokens() {
       } else {
         // Sucesso na verificação
         setVerified(true)
-        const newBalance = typeof j.balance === 'string' ? j.balance : '0'
         const newCanMint = j.canMint === true
-
         setCanMint(newCanMint)
-        setBalance(newBalance)
         setError(null)
 
-        // Salva no cache - hasMinted = true se canMint é false OU se tem balance > 0
-        const hasMinted = !newCanMint || Number(newBalance) > 0
-        saveMintStatus(addr, hasMinted, newBalance)
+        // Só atualiza saldo com leitura confirmada on-chain
+        // balanceConfirmed === false significa que o read falhou e '0' é default
+        if (j.balanceConfirmed !== false) {
+          const newBalance = typeof j.balance === 'string' ? j.balance : '0'
+          setBalance(newBalance)
+
+          // Salva no cache - hasMinted = true se canMint é false OU se tem balance > 0
+          const hasMinted = !newCanMint || Number(newBalance) > 0
+          saveMintStatus(addr, hasMinted, newBalance)
+        }
       }
     } catch {
       // Erro de rede - NUNCA permite mint em caso de erro
@@ -110,32 +114,25 @@ export function MintTestTokens() {
     refresh()
   }, [refresh])
 
-  // Polling para verificar mudanças (conectou/desconectou)
+  // Polling para verificar mudanças (conectou/desconectou) e atualizar saldo
   useEffect(() => {
     const id = setInterval(() => {
-      // Se desconectou, limpa estado
-      if (!isConnected()) {
-        setStx(null)
-        setCanMint(null)
-        setBalance('0')
-        setLoading(false)
-        return
-      }
-      // Se conectado mas stx é null, atualiza
-      if (!stx) {
-        refresh()
-      }
-    }, 2500)
+      // Se desconectou, apenas pula — componente retorna null quando desconectado
+      // NÃO reseta balance para evitar flicker
+      if (!isConnected()) return
+      refresh()
+    }, 30000) // 30s para evitar 429 da Hiro API
     return () => clearInterval(id)
   }, [stx, refresh])
 
   // Escuta eventos de mudança de saldo (após apostas, claims, etc)
   useEffect(() => {
     const handleBalanceChanged = () => {
-      // Espera um pouco para a transação ser confirmada na rede
-      setTimeout(() => {
-        refresh()
-      }, 3000)
+      // Tenta atualizar em intervalos crescentes para pegar a confirmação on-chain
+      // Transações testnet demoram ~30-60s para confirmar
+      setTimeout(() => refresh(), 5000)
+      setTimeout(() => refresh(), 15000)
+      setTimeout(() => refresh(), 30000)
     }
     window.addEventListener('bitpredix:balance-changed', handleBalanceChanged)
     return () => window.removeEventListener('bitpredix:balance-changed', handleBalanceChanged)
@@ -217,10 +214,12 @@ export function MintTestTokens() {
             network: 'testnet',
             onFinish: () => {
               setMinting(false)
-              // Marca imediatamente como mintou no cache
-              saveMintStatus(stx, true, '1000000000')
+              // Marca como mintou no cache mas mantém saldo atual
+              // Saldo real será atualizado via refresh() quando tx confirmar on-chain
+              saveMintStatus(stx, true, balance)
               setCanMint(false)
-              refresh()
+              // Dispara refresh com backoff para pegar confirmação on-chain
+              window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
             },
             onCancel: () => {
               setMinting(false)

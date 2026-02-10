@@ -39,8 +39,8 @@ function parseContractId(id) {
 async function main() {
   const arg = process.argv[2]
   const roundId = arg != null && arg !== ''
-    ? Math.floor(Number(arg) / 60) * 60
-    : Math.floor(Date.now() / 1000 / 60) * 60
+    ? Number(arg)
+    : Math.floor(Date.now() / 1000 / 60)
 
   if (!BITPREDIX_ID || !BITPREDIX_ID.includes('.')) {
     console.error('BITPREDIX_ID / NEXT_PUBLIC_BITPREDIX_CONTRACT_ID em .env.local.')
@@ -48,8 +48,8 @@ async function main() {
   }
 
   const [addr, name] = parseContractId(BITPREDIX_ID)
-  const { Cl, cvToHex, deserializeCV } = await import('@stacks/transactions')
-  const keyHex = cvToHex(Cl.tuple({ 'round-id': Cl.uint(roundId) }))
+  const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
+  const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId) }))
   const url = `${HIRO}/v2/map_entry/${addr}/${name}/rounds?proof=0`
 
   const res = await fetch(url, {
@@ -80,14 +80,16 @@ async function main() {
     process.exit(1)
   }
 
+  // Campos do contrato v5: total-up, total-down, price-start, price-end, resolved
   const u = (k) => Number(d[k]?.value ?? 0)
-  const s = (k) => String(d[k]?.value ?? '')
+  const b = (k) => d[k]?.value === true
   console.log('→ Round existe.')
-  console.log('  status:', s('status'))
-  console.log('  start-at:', u('start-at'))
-  console.log('  ends-at:', u('ends-at'))
-  console.log('  price-at-start:', u('price-at-start') / 1e6)
-  console.log('  pool-up:', u('pool-up') / 1e6, '| pool-down:', u('pool-down') / 1e6)
+  console.log('  resolved:', b('resolved'))
+  console.log('  start-at (computed):', roundId * 60)
+  console.log('  ends-at (computed):', (roundId + 1) * 60)
+  console.log('  price-start:', u('price-start') / 100)
+  console.log('  price-end:', u('price-end') / 100)
+  console.log('  total-up:', u('total-up') / 1e6, '| total-down:', u('total-down') / 1e6)
 }
 
 main().catch((e) => {

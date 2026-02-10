@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { getLocalStorage, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
+import { uintCV, standardPrincipalCV, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
 
@@ -55,7 +55,7 @@ export function usePendingRounds(): UsePendingRoundsResult {
         body: JSON.stringify({
           contractId: BITPREDIX_CONTRACT,
           functionName: 'get-user-pending-rounds',
-          args: [cvToHex(Cl.standardPrincipal(stxAddress))],
+          args: [cvToHex(standardPrincipalCV(stxAddress))],
           sender: stxAddress
         })
       }).catch(() => null) // Silently handle network errors
@@ -99,8 +99,8 @@ export function usePendingRounds(): UsePendingRoundsResult {
               contractId: BITPREDIX_CONTRACT,
               functionName: 'get-bet',
               args: [
-                cvToHex(Cl.uint(roundId)),
-                cvToHex(Cl.standardPrincipal(stxAddress))
+                cvToHex(uintCV(roundId)),
+                cvToHex(standardPrincipalCV(stxAddress))
               ],
               sender: stxAddress
             })

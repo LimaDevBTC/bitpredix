@@ -6,6 +6,11 @@ export const revalidate = 0
 const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const HIRO_TESTNET = 'https://api.testnet.hiro.so'
 
+// Cache server-side para evitar 429 da Hiro API
+// Key: address, Value: { data, timestamp }
+const cache = new Map<string, { data: Record<string, unknown>; timestamp: number }>()
+const CACHE_TTL_MS = 15_000 // 15s — polling do client é 30s, cache garante que não repete
+
 function parseContractId(id: string): [string, string] {
   const i = id.lastIndexOf('.')
   if (i < 0) throw new Error(`Invalid contract id: ${id}`)
@@ -39,9 +44,15 @@ export async function GET(req: Request) {
     )
   }
 
+  // Retorna cache se ainda válido (evita 429)
+  const cached = cache.get(address)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return NextResponse.json(cached.data)
+  }
+
   try {
-    const { Cl, cvToHex, hexToCV, cvToJSON } = await import('@stacks/transactions')
-    const argHex = cvToHex(Cl.standardPrincipal(address))
+    const { standardPrincipalCV, cvToHex, hexToCV, cvToJSON } = await import('@stacks/transactions')
+    const argHex = cvToHex(standardPrincipalCV(address))
 
     console.log(`[mint-status] Checking for address: ${address}`)
 
@@ -78,8 +89,10 @@ export async function GET(req: Request) {
     }
 
     // Parse minted
+    // IMPORTANTE: canMint default = false (safe default)
+    // Só permite mint quando confirmamos explicitamente que minted === 0
     let minted = BigInt(0)
-    let canMint = true
+    let canMint = false
 
     if (mintedResult.status === 'fulfilled') {
       const json = mintedResult.value as { okay?: boolean; result?: string; cause?: string }
@@ -95,6 +108,8 @@ export async function GET(req: Request) {
         canMint = minted === BigInt(0)
 
         console.log(`[mint-status] minted=${minted}, canMint=${canMint}`)
+      } else {
+        console.error('[mint-status] get-minted response not okay or missing result:', json.okay, json.cause)
       }
     } else {
       console.error('[mint-status] get-minted failed:', mintedResult.reason)
@@ -102,6 +117,7 @@ export async function GET(req: Request) {
 
     // Parse balance
     let balance = '0'
+    let balanceConfirmed = false
     if (balanceResult.status === 'fulfilled') {
       const jBalance = balanceResult.value as { okay?: boolean; result?: string; cause?: string }
       console.log('[mint-status] get-balance raw response:', JSON.stringify(jBalance))
@@ -113,6 +129,7 @@ export async function GET(req: Request) {
           console.log('[mint-status] get-balance parsed:', JSON.stringify(cvBalJson))
 
           balance = extractUintValue(cvBalJson)
+          balanceConfirmed = true
           console.log('[mint-status] extracted balance:', balance)
         } catch (e) {
           console.error('[mint-status] balance parse error:', e)
@@ -125,14 +142,22 @@ export async function GET(req: Request) {
       console.error('[mint-status] get-balance failed:', balanceResult.reason)
     }
 
-    console.log(`[mint-status] Final result: minted=${minted}, canMint=${canMint}, balance=${balance}`)
+    console.log(`[mint-status] Final result: minted=${minted}, canMint=${canMint}, balance=${balance}, balanceConfirmed=${balanceConfirmed}`)
 
-    return NextResponse.json({
+    const responseData = {
       minted: String(minted),
       canMint,
       balance,
+      balanceConfirmed,
       ok: true,
-    })
+    }
+
+    // Salva no cache apenas se ao menos uma chamada teve sucesso
+    if (mintedResult.status === 'fulfilled' || balanceResult.status === 'fulfilled') {
+      cache.set(address, { data: responseData, timestamp: Date.now() })
+    }
+
+    return NextResponse.json(responseData)
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'get-minted failed'
     console.error('[mint-status] Error:', msg)

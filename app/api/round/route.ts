@@ -47,9 +47,9 @@ export async function GET() {
     if (BITPREDIX_ID && BITPREDIX_ID.includes('.')) {
       try {
         const [contractAddress, contractName] = parseContractId(BITPREDIX_ID)
-        const roundId = Math.floor(Date.now() / 1000 / 60) * 60
-        const { Cl, cvToHex, deserializeCV } = await import('@stacks/transactions')
-        const keyHex = cvToHex(Cl.tuple({ 'round-id': Cl.uint(roundId) }))
+        const roundId = Math.floor(Date.now() / 1000 / 60)
+        const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
+        const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId) }))
         const res = await fetch(
           `${HIRO_TESTNET}/v2/map_entry/${contractAddress}/${contractName}/rounds?proof=0`,
           {
@@ -70,25 +70,30 @@ export async function GET() {
           return emptyRoundResponse()
         }
         const u = (k: string) => Number(d[k]?.value ?? 0)
-        const s = (k: string) => String(d[k]?.value ?? '')
-        const startAt = u('start-at') * 1000
+        // Campos do contrato v5: total-up, total-down, price-start, price-end, resolved
+        // Tempos são derivados do roundId (não armazenados no mapa)
+        const startAt = roundId * 60 * 1000
+        const totalUp = u('total-up')
+        const totalDown = u('total-down')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const resolved = (d['resolved'] as any)?.value === true || String(d['resolved']?.value) === 'true'
         const round = {
           id: `round-${roundId}`,
           startAt,
-          endsAt: u('ends-at') * 1000,
-          tradingClosesAt: u('trading-closes-at') * 1000,
-          priceAtStart: u('price-at-start') / 1e6,
-          priceAtEnd: u('price-at-end') > 0 ? u('price-at-end') / 1e6 : undefined,
-          outcome: s('outcome') !== 'NONE' ? s('outcome') : undefined,
-          status: s('status'),
+          endsAt: (roundId + 1) * 60 * 1000,
+          tradingClosesAt: startAt + 48 * 1000,
+          priceAtStart: u('price-start') / 100,
+          priceAtEnd: u('price-end') > 0 ? u('price-end') / 100 : undefined,
+          outcome: resolved ? (u('price-end') > u('price-start') ? 'UP' : 'DOWN') : undefined,
+          status: resolved ? 'resolved' : 'open',
           pool: {
-            qUp: u('pool-up') / 1e6,
-            qDown: u('pool-down') / 1e6,
-            volumeTraded: u('volume-traded') / 1e6,
+            qUp: totalUp / 1e6,
+            qDown: totalDown / 1e6,
+            volumeTraded: (totalUp + totalDown) / 1e6,
           } as { qUp: number; qDown: number; volumeTraded: number },
         }
-        const pu = u('pool-up') + u('pool-down') > 0
-          ? u('pool-down') / (u('pool-up') + u('pool-down'))
+        const pu = totalUp + totalDown > 0
+          ? totalDown / (totalUp + totalDown)
           : 0.5
         const pd = 1 - pu
         return NextResponse.json({

@@ -264,7 +264,7 @@ export function MarketCard() {
     setError(null)
 
     if (ONCHAIN && round) {
-      const { Cl } = await import('@stacks/transactions')
+      const { uintCV, contractPrincipalCV, stringAsciiCV } = await import('@stacks/transactions')
       const amountUint = Math.round(v * 1e6)
       const roundIdUint = Math.floor(round.startAt / 1000)
       const txId = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID ?? ''
@@ -280,14 +280,14 @@ export function MarketCard() {
         contractAddress: txAddr,
         contractName: txName,
         functionName: 'approve',
-        functionArgs: [Cl.contractPrincipal(bpAddr, bpName), Cl.uint(amountUint)],
+        functionArgs: [contractPrincipalCV(bpAddr, bpName), uintCV(amountUint)],
         network: 'testnet',
         onFinish: () => {
           openContractCall({
             contractAddress: bpAddr,
             contractName: bpName,
             functionName: 'place-bet',
-            functionArgs: [Cl.uint(roundIdUint), Cl.stringAscii(side), Cl.uint(amountUint)],
+            functionArgs: [uintCV(roundIdUint), stringAsciiCV(side), uintCV(amountUint)],
             network: 'testnet',
             onFinish: () => {
               hadNon50ForCurrentRoundRef.current = true

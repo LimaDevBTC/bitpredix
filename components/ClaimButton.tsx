@@ -5,7 +5,7 @@ console.log('🔥 ClaimButton LOADED - version v2024-02-03-A 🔥')
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { Cl, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
+import { uintCV, standardPrincipalCV, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
@@ -71,7 +71,7 @@ export function ClaimButton() {
         body: JSON.stringify({
           contractId: BITPREDIX_CONTRACT,
           functionName: 'get-user-pending-rounds',
-          args: [cvToHex(Cl.standardPrincipal(stxAddress))],
+          args: [cvToHex(standardPrincipalCV(stxAddress))],
           sender: stxAddress
         })
       }).catch(() => null) // Silently handle network errors
@@ -119,8 +119,8 @@ export function ClaimButton() {
               contractId: BITPREDIX_CONTRACT,
               functionName: 'get-bet',
               args: [
-                cvToHex(Cl.uint(roundId)),
-                cvToHex(Cl.standardPrincipal(stxAddress))
+                cvToHex(uintCV(roundId)),
+                cvToHex(standardPrincipalCV(stxAddress))
               ],
               sender: stxAddress
             })
@@ -254,9 +254,9 @@ export function ClaimButton() {
                 contractName: contractName,
                 functionName: 'claim-round',
                 functionArgs: [
-                  Cl.uint(round.roundId),
-                  Cl.uint(prices.priceStart),
-                  Cl.uint(prices.priceEnd)
+                  uintCV(round.roundId),
+                  uintCV(prices.priceStart),
+                  uintCV(prices.priceEnd)
                 ],
                 // IMPORTANTE: Allow mode para permitir que o contrato envie tokens para nós
                 postConditionMode: PostConditionMode.Allow,

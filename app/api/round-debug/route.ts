@@ -15,7 +15,7 @@ function parseContractId(id: string): [string, string] {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const roundIdParam = searchParams.get('roundId')
-  const roundId = Math.floor(Date.now() / 1000 / 60) * 60
+  const roundId = Math.floor(Date.now() / 1000 / 60)
   const roundIdUsed = roundIdParam != null && roundIdParam !== ''
     ? Number(roundIdParam)
     : roundId
@@ -25,8 +25,8 @@ export async function GET(req: NextRequest) {
   }
 
   const [contractAddress, contractName] = parseContractId(BITPREDIX_ID)
-  const { Cl, cvToHex, deserializeCV } = await import('@stacks/transactions')
-  const keyHex = cvToHex(Cl.tuple({ 'round-id': Cl.uint(roundIdUsed) }))
+  const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
+  const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundIdUsed) }))
   const url = `${HIRO_TESTNET}/v2/map_entry/${contractAddress}/${contractName}/rounds?proof=0`
 
   const res = await fetch(url, {
@@ -55,10 +55,15 @@ export async function GET(req: NextRequest) {
       const d = tuple?.data ?? cv?.data
       out.hasTupleData = !!d
       out.tupleKeys = d ? Object.keys(d) : []
-      if (d && typeof (d as Record<string, { value?: unknown }>)['start-at'] !== 'undefined') {
-        out.startAt = (d as Record<string, { value?: unknown }>)['start-at']?.value
-        out.status = (d as Record<string, { value?: unknown }>)['status']?.value
-      }
+      // Campos do contrato v5: total-up, total-down, price-start, price-end, resolved
+      const val = (k: string) => (d as Record<string, { value?: unknown }>)[k]?.value
+      out.totalUp = val('total-up')
+      out.totalDown = val('total-down')
+      out.priceStart = val('price-start')
+      out.priceEnd = val('price-end')
+      out.resolved = val('resolved')
+      out.startAtComputed = roundIdUsed * 60
+      out.endsAtComputed = (roundIdUsed + 1) * 60
     } catch (e) {
       out.parseError = e instanceof Error ? e.message : String(e)
     }
