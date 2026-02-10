@@ -58,11 +58,10 @@ export function MarketCardV4() {
   const [amount, setAmount] = useState('')
   const [trading, setTrading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [lastTrade, setLastTrade] = useState<{ side: Side; shares: number } | null>(null)
+  const [roundBets, setRoundBets] = useState<{ roundId: number; up: number; down: number } | null>(null)
   const [stxAddress, setStxAddress] = useState<string | null>(null)
   const [priceHistory, setPriceHistory] = useState<PriceDataPoint[]>([])
 
-  const lastTradeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastRoundIdRef = useRef<number | null>(null)
   const openPriceRef = useRef<number | null>(null)
 
@@ -79,6 +78,7 @@ export function MarketCardV4() {
         lastRoundIdRef.current = newRound.id
         openPriceRef.current = currentPrice
         setPriceHistory([{ time: 0, up: 50, down: 50 }])
+        setRoundBets(null)
       }
 
       // Atualiza preco de abertura se ainda nao temos
@@ -324,15 +324,17 @@ export function MarketCardV4() {
         })
       })
 
-      // Sucesso
-      setLastTrade({ side, shares: v })
+      // Sucesso — acumula apostas no round atual
+      const prevBets = (roundBets?.roundId === round.id) ? roundBets : { roundId: round.id, up: 0, down: 0 }
+      setRoundBets({
+        roundId: round.id,
+        up: prevBets.up + (side === 'UP' ? v : 0),
+        down: prevBets.down + (side === 'DOWN' ? v : 0),
+      })
       setAmount('')
 
       // Dispara evento para atualizar saldo em outros componentes
       window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
-
-      if (lastTradeTimeoutRef.current) clearTimeout(lastTradeTimeoutRef.current)
-      lastTradeTimeoutRef.current = setTimeout(() => setLastTrade(null), 5000)
 
     } catch (e) {
       if (e instanceof Error && e.message !== 'Cancelled') {
@@ -438,12 +440,12 @@ export function MarketCardV4() {
                 <div className="h-5 w-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
                 <p className="font-medium">Awaiting wallet approval...</p>
               </div>
-            ) : lastTrade ? (
-              <div className="w-full h-full px-4 rounded-lg bg-zinc-800/80 text-zinc-400 text-sm flex items-center">
-                <span className="text-zinc-500">Bet placed: </span>
-                <span className={lastTrade.side === 'UP' ? 'text-up font-medium' : 'text-down font-medium'}>
-                  ${lastTrade.shares} on {lastTrade.side}
-                </span>
+            ) : roundBets && roundBets.roundId === round?.id && (roundBets.up > 0 || roundBets.down > 0) ? (
+              <div className="w-full h-full px-4 rounded-lg bg-zinc-800/80 text-zinc-400 text-sm flex items-center gap-1">
+                <span className="text-zinc-500">Your bets: </span>
+                {roundBets.up > 0 && <span className="text-up font-medium">${roundBets.up} UP</span>}
+                {roundBets.up > 0 && roundBets.down > 0 && <span className="text-zinc-600"> | </span>}
+                {roundBets.down > 0 && <span className="text-down font-medium">${roundBets.down} DOWN</span>}
               </div>
             ) : isTradingOpen ? (
               <div className="w-full h-full px-4 rounded-lg bg-zinc-800/60 text-zinc-400 text-sm border border-zinc-700/50 flex flex-col justify-center">

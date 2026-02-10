@@ -25,3 +25,9 @@ path = "contracts/bitpredix.clar"
 [contracts.bitpredix-v3]
 path = "contracts/bitpredix-v3.clar"
 # Depende de: .oracle e .test-usdcx (TOKEN); ordem deploy: test-usdcx → oracle → bitpredix
+
+[contracts.bitpredix-v5]
+path = "contracts/bitpredix-v5.clar"
+
+[contracts.bitpredix-v6]
+path = "contracts/bitpredix-v6.clar"

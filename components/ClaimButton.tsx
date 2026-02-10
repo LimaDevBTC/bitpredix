@@ -5,20 +5,22 @@ console.log('🔥 ClaimButton LOADED - version v2024-02-03-A 🔥')
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { uintCV, standardPrincipalCV, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
+import { uintCV, standardPrincipalCV, stringAsciiCV, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_CLAIMS_PER_TX = 10
 
+interface PendingBet {
+  side: 'UP' | 'DOWN'
+  amount: number
+  claimed: boolean
+}
+
 interface PendingRound {
   roundId: number
-  bet: {
-    side: string
-    amount: number
-    claimed: boolean
-  }
+  bets: PendingBet[]
 }
 
 export function ClaimButton() {
@@ -108,53 +110,58 @@ export function ClaimButton() {
         return
       }
 
-      // Busca detalhes de cada aposta
+      // Busca detalhes de cada aposta (ambos os lados: UP e DOWN)
       const rounds: PendingRound[] = []
       for (const roundId of roundIds) {
-        try {
-          const betResponse = await fetch('/api/stacks-read', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contractId: BITPREDIX_CONTRACT,
-              functionName: 'get-bet',
-              args: [
-                cvToHex(uintCV(roundId)),
-                cvToHex(standardPrincipalCV(stxAddress))
-              ],
-              sender: stxAddress
-            })
-          }).catch(() => null) // Silently handle network errors
+        const bets: PendingBet[] = []
+        for (const side of ['UP', 'DOWN'] as const) {
+          try {
+            const betResponse = await fetch('/api/stacks-read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contractId: BITPREDIX_CONTRACT,
+                functionName: 'get-bet',
+                args: [
+                  cvToHex(uintCV(roundId)),
+                  cvToHex(standardPrincipalCV(stxAddress)),
+                  cvToHex(stringAsciiCV(side))
+                ],
+                sender: stxAddress
+              })
+            }).catch(() => null)
 
-          if (betResponse && betResponse.ok) {
-            const betData = await betResponse.json()
-            if (betData.okay && betData.result) {
-              const betCV = hexToCV(betData.result)
-              const betJSON = cvToJSON(betCV)
+            if (betResponse && betResponse.ok) {
+              const betData = await betResponse.json()
+              if (betData.okay && betData.result) {
+                const betCV = hexToCV(betData.result)
+                const betJSON = cvToJSON(betCV)
 
-              if (betJSON?.value) {
-                rounds.push({
-                  roundId,
-                  bet: {
-                    side: betJSON.value.side?.value || '',
+                if (betJSON?.value) {
+                  bets.push({
+                    side,
                     amount: parseInt(betJSON.value.amount?.value || '0'),
                     claimed: betJSON.value.claimed?.value === true
-                  }
-                })
+                  })
+                }
               }
             }
+          } catch {
+            // Silently ignore errors fetching individual bets
           }
-        } catch {
-          // Silently ignore errors fetching individual bets
+        }
+        if (bets.length > 0) {
+          rounds.push({ roundId, bets })
         }
       }
 
-      // Filtra apenas: nao-claimed, ja terminaram, E nao estao no cache de claims enviados
-      const now = Math.floor(Date.now() / 1000) // Unix timestamp em segundos
+      // Filtra: rounds ja terminados, com pelo menos 1 bet nao-claimed, nao no cache
+      const now = Math.floor(Date.now() / 1000)
       const unclaimed = rounds.filter(r => {
-        const roundEndTime = (r.roundId + 1) * 60 // Round termina em (roundId + 1) * 60 segundos
+        const roundEndTime = (r.roundId + 1) * 60
         const hasEnded = now > roundEndTime
         const alreadySubmitted = claimedRoundsRef.current.has(r.roundId)
+        const hasUnclaimedBet = r.bets.some(b => !b.claimed)
 
         if (!hasEnded) {
           console.log(`[ClaimButton] Round ${r.roundId} not ended yet (ends at ${roundEndTime}, now ${now})`)
@@ -163,14 +170,13 @@ export function ClaimButton() {
           console.log(`[ClaimButton] Round ${r.roundId} already submitted for claim, skipping`)
         }
 
-        return !r.bet.claimed && hasEnded && !alreadySubmitted
+        return hasUnclaimedBet && hasEnded && !alreadySubmitted
       })
       setPendingRounds(unclaimed)
 
-      // Calcula total estimado (simplificado - assume 50% de chance de ganho)
-      // Na pratica, o usuario pode ter ganho ou perdido
-      const total = unclaimed.reduce((sum, r) => sum + r.bet.amount, 0)
-      setTotalClaimable(total / 1e6) // Converte de 6 decimais para USD
+      // Calcula total estimado
+      const total = unclaimed.reduce((sum, r) => sum + r.bets.reduce((s, b) => s + b.amount, 0), 0)
+      setTotalClaimable(total / 1e6)
     } catch (e) {
       console.error('[ClaimButton] Error fetching pending rounds:', e)
     }
@@ -216,73 +222,69 @@ export function ClaimButton() {
         batches.push(pendingRounds.slice(i, i + MAX_CLAIMS_PER_TX))
       }
 
+      // Conta total de bets para progresso
+      const totalBets = pendingRounds.reduce((sum, r) => sum + r.bets.filter(b => !b.claimed).length, 0)
       let processed = 0
+
       for (const batch of batches) {
         for (const round of batch) {
-          setClaimProgress(`Processando ${processed + 1} de ${pendingRounds.length}...`)
-
+          // Busca precos do Pyth para este round (uma vez por round)
+          setClaimProgress(`Buscando precos round ${round.roundId}...`)
+          let prices
           try {
-            // Busca precos do Pyth para este round
-            setClaimProgress(`Buscando precos round ${round.roundId}...`)
-            let prices
-            try {
-              prices = await getRoundPrices(round.roundId)
-              console.log(`[ClaimButton] Round ${round.roundId} prices:`, {
-                priceStart: prices.priceStart,
-                priceEnd: prices.priceEnd,
-                startUSD: (prices.priceStart / 100).toFixed(2),
-                endUSD: (prices.priceEnd / 100).toFixed(2)
-              })
-            } catch (priceError) {
-              console.error(`[ClaimButton] Failed to get prices for round ${round.roundId}:`, priceError)
-              setClaimProgress(`Precos indisponiveis para round ${round.roundId}, pulando...`)
-              processed++
-              continue // Skip this round if we can't get prices
-            }
-
-            setClaimProgress(`Enviando claim ${processed + 1} de ${pendingRounds.length}...`)
-
-            // Nota: Não usamos post-conditions para claim porque:
-            // - Se ganhou: contrato envia tokens para nós (não precisamos proteger)
-            // - Se perdeu: contrato não envia nada (payout = 0)
-            // Post-condition com willSendGte(1) falha quando payout = 0
-
-            // Chama claim-round no contrato
-            await new Promise<string>((resolve, reject) => {
-              openContractCall({
-                contractAddress: contractAddr,
-                contractName: contractName,
-                functionName: 'claim-round',
-                functionArgs: [
-                  uintCV(round.roundId),
-                  uintCV(prices.priceStart),
-                  uintCV(prices.priceEnd)
-                ],
-                // IMPORTANTE: Allow mode para permitir que o contrato envie tokens para nós
-                postConditionMode: PostConditionMode.Allow,
-                network: 'testnet',
-                onFinish: (data) => {
-                  console.log('[ClaimButton] Claim tx submitted:', data.txId)
-                  resolve(data.txId)
-                },
-                onCancel: () => {
-                  reject(new Error('Transaction cancelled by user'))
-                }
-              })
+            prices = await getRoundPrices(round.roundId)
+            console.log(`[ClaimButton] Round ${round.roundId} prices:`, {
+              priceStart: prices.priceStart,
+              priceEnd: prices.priceEnd,
+              startUSD: (prices.priceStart / 100).toFixed(2),
+              endUSD: (prices.priceEnd / 100).toFixed(2)
             })
-
-            // Tx foi enviada - adiciona ao cache para evitar duplicatas
-            claimedRoundsRef.current.add(round.roundId)
-            // Remove otimisticamente da lista de pendentes
-            setPendingRounds(prev => prev.filter(r => r.roundId !== round.roundId))
-            console.log(`[ClaimButton] Round ${round.roundId} removed from pending (added to claimed cache)`)
-
-            processed++
-          } catch (e) {
-            console.error(`[ClaimButton] Failed to claim round ${round.roundId}:`, e)
-            // Continua para o proximo round mesmo se um falhar
-            processed++
+          } catch (priceError) {
+            console.error(`[ClaimButton] Failed to get prices for round ${round.roundId}:`, priceError)
+            setClaimProgress(`Precos indisponiveis para round ${round.roundId}, pulando...`)
+            processed += round.bets.filter(b => !b.claimed).length
+            continue
           }
+
+          // Claim cada side separadamente
+          for (const bet of round.bets) {
+            if (bet.claimed) continue
+
+            processed++
+            setClaimProgress(`Enviando claim ${processed} de ${totalBets}...`)
+
+            try {
+              await new Promise<string>((resolve, reject) => {
+                openContractCall({
+                  contractAddress: contractAddr,
+                  contractName: contractName,
+                  functionName: 'claim-round-side',
+                  functionArgs: [
+                    uintCV(round.roundId),
+                    stringAsciiCV(bet.side),
+                    uintCV(prices.priceStart),
+                    uintCV(prices.priceEnd)
+                  ],
+                  postConditionMode: PostConditionMode.Allow,
+                  network: 'testnet',
+                  onFinish: (data) => {
+                    console.log(`[ClaimButton] Claim tx submitted (round ${round.roundId} ${bet.side}):`, data.txId)
+                    resolve(data.txId)
+                  },
+                  onCancel: () => {
+                    reject(new Error('Transaction cancelled by user'))
+                  }
+                })
+              })
+            } catch (e) {
+              console.error(`[ClaimButton] Failed to claim round ${round.roundId} ${bet.side}:`, e)
+            }
+          }
+
+          // Tx(s) enviada(s) para este round - adiciona ao cache
+          claimedRoundsRef.current.add(round.roundId)
+          setPendingRounds(prev => prev.filter(r => r.roundId !== round.roundId))
+          console.log(`[ClaimButton] Round ${round.roundId} removed from pending (added to claimed cache)`)
         }
       }
 
