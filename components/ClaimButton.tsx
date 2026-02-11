@@ -1,7 +1,7 @@
 'use client'
 
-// === VERSION CHECK: v2024-02-03-A ===
-console.log('🔥 ClaimButton LOADED - version v2024-02-03-A 🔥')
+// === VERSION CHECK: v2024-02-04-A ===
+console.log('🔥 ClaimButton LOADED - version v2024-02-04-A 🔥')
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
@@ -11,6 +11,31 @@ import { getRoundPrices } from '@/lib/pyth'
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_CLAIMS_PER_TX = 10
+const STACKS_API_BASE = 'https://api.testnet.hiro.so'
+
+// Espera uma tx aparecer no mempool antes de enviar a proxima (evita nonce collision)
+async function waitForTxInMempool(txId: string, maxWaitMs = 30000): Promise<boolean> {
+  const pollInterval = 2500
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const res = await fetch(`${STACKS_API_BASE}/extended/v1/tx/${txId}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.tx_status === 'pending' || data.tx_status === 'success') {
+          return true
+        }
+      }
+    } catch {
+      // API unreachable — fallback to delay
+    }
+    await new Promise(r => setTimeout(r, pollInterval))
+  }
+  // Timeout — proceed anyway with a safety delay
+  await new Promise(r => setTimeout(r, 5000))
+  return false
+}
 
 interface PendingBet {
   side: 'UP' | 'DOWN'
@@ -246,7 +271,7 @@ export function ClaimButton() {
             continue
           }
 
-          // Claim cada side separadamente
+          // Claim cada side separadamente, esperando mempool entre txs
           for (const bet of round.bets) {
             if (bet.claimed) continue
 
@@ -254,7 +279,7 @@ export function ClaimButton() {
             setClaimProgress(`Enviando claim ${processed} de ${totalBets}...`)
 
             try {
-              await new Promise<string>((resolve, reject) => {
+              const txId = await new Promise<string>((resolve, reject) => {
                 openContractCall({
                   contractAddress: contractAddr,
                   contractName: contractName,
@@ -276,6 +301,14 @@ export function ClaimButton() {
                   }
                 })
               })
+
+              // Espera tx entrar no mempool antes de enviar a proxima
+              // (evita nonce collision no Stacks)
+              if (processed < totalBets) {
+                setClaimProgress(`Aguardando tx ${txId.slice(0, 10)}... no mempool...`)
+                const found = await waitForTxInMempool(txId)
+                console.log(`[ClaimButton] Tx ${txId.slice(0, 10)} mempool status: ${found ? 'found' : 'timeout, proceeding'}`)
+              }
             } catch (e) {
               console.error(`[ClaimButton] Failed to claim round ${round.roundId} ${bet.side}:`, e)
             }
