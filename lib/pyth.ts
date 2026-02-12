@@ -161,8 +161,31 @@ export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice>
 }
 
 /**
+ * Encontra o indice do candle mais proximo de um timestamp alvo
+ */
+function findClosestCandleIndex(timestamps: number[], target: number): number {
+  let closest = 0
+  let minDiff = Math.abs(timestamps[0] - target)
+
+  for (let i = 1; i < timestamps.length; i++) {
+    const diff = Math.abs(timestamps[i] - target)
+    if (diff < minDiff) {
+      minDiff = diff
+      closest = i
+    }
+  }
+
+  return closest
+}
+
+/**
  * Busca precos de abertura e fechamento de um round
  * Usado pelo ClaimButton para resolver rounds
+ *
+ * Faz uma unica chamada a API cobrindo todo o round e seleciona
+ * os candles corretos para start e end. Quando ambos apontam para
+ * o mesmo candle (dados recentes ainda nao disponiveis), usa
+ * open para start e close para end.
  *
  * @param roundId ID do round (timestamp do inicio / 60)
  * @returns Precos em centavos (para o contrato)
@@ -171,19 +194,60 @@ export async function getRoundPrices(roundId: number): Promise<RoundPrices> {
   const roundStartTimestamp = roundId * 60
   const roundEndTimestamp = (roundId + 1) * 60
 
-  // Busca os dois precos em paralelo
-  const [startPrice, endPrice] = await Promise.all([
-    getPriceAtTimestamp(roundStartTimestamp),
-    getPriceAtTimestamp(roundEndTimestamp)
-  ])
+  // Uma unica chamada cobrindo todo o round com buffer
+  const response = await fetch(
+    `/api/pyth-price?from=${roundStartTimestamp - 120}&to=${roundEndTimestamp + 120}`
+  )
+  const data = await response.json()
 
-  // Converte para centavos (2 decimais) para o contrato
-  // Ex: $97,234.56 -> 9723456
+  if (!response.ok || !data.ok) {
+    if (data?.noData) {
+      console.warn(`[Pyth] No historical data for round ${roundId}, using current price as fallback`)
+      const current = await fetchCurrentPrice()
+      const priceCents = Math.round(current.price * 100)
+      return {
+        priceStart: priceCents,
+        priceEnd: priceCents,
+        timestampStart: roundStartTimestamp,
+        timestampEnd: roundEndTimestamp
+      }
+    }
+    throw new Error(data?.error || 'Failed to fetch round prices')
+  }
+
+  const timestamps: number[] = data.timestamps || []
+  const closes: number[] = data.close || []
+  const opens: number[] = data.open || []
+
+  if (timestamps.length === 0 || closes.length === 0) {
+    throw new Error('No candle data available for round')
+  }
+
+  // Encontra candle mais proximo de cada timestamp
+  const startIdx = findClosestCandleIndex(timestamps, roundStartTimestamp)
+  const endIdx = findClosestCandleIndex(timestamps, roundEndTimestamp)
+
+  let priceStart: number
+  let priceEnd: number
+
+  if (startIdx === endIdx) {
+    // Mesmo candle para start e end — usa open/close desse candle
+    // (acontece quando o candle do fim do round ainda nao esta disponivel)
+    priceStart = opens[startIdx]
+    priceEnd = closes[endIdx]
+    console.log(`[Pyth] Round ${roundId}: same candle (${timestamps[startIdx]}), using open=${priceStart} close=${priceEnd}`)
+  } else {
+    // Candles diferentes — usa close de cada (preco naquele momento)
+    priceStart = closes[startIdx]
+    priceEnd = closes[endIdx]
+    console.log(`[Pyth] Round ${roundId}: start candle=${timestamps[startIdx]} close=${priceStart}, end candle=${timestamps[endIdx]} close=${priceEnd}`)
+  }
+
   return {
-    priceStart: Math.round(startPrice.price * 100),
-    priceEnd: Math.round(endPrice.price * 100),
-    timestampStart: startPrice.timestamp,
-    timestampEnd: endPrice.timestamp
+    priceStart: Math.round(priceStart * 100),
+    priceEnd: Math.round(priceEnd * 100),
+    timestampStart: timestamps[startIdx],
+    timestampEnd: timestamps[endIdx]
   }
 }
 
