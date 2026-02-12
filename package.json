@@ -21,10 +21,10 @@
     "@stacks/transactions": "^7.3.1",
     "@stacks/wallet-sdk": "^7.2.0",
     "dotenv": "^17.2.3",
+    "lightweight-charts": "^5.1.0",
     "next": "^16.1.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "recharts": "^3.7.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@stacks/clarinet-sdk": "^3.9.1",

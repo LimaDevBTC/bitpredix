@@ -93,7 +93,7 @@ export async function GET() {
           } as { qUp: number; qDown: number; volumeTraded: number },
         }
         const pu = totalUp + totalDown > 0
-          ? totalDown / (totalUp + totalDown)
+          ? totalUp / (totalUp + totalDown)
           : 0.5
         const pd = 1 - pu
         return NextResponse.json({

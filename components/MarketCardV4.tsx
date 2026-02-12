@@ -5,7 +5,13 @@ import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
 import { uintCV, contractPrincipalCV, stringAsciiCV, Pc } from '@stacks/transactions'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
-import { PriceChart, type PriceDataPoint } from './PriceChart'
+import dynamic from 'next/dynamic'
+import type { BtcPricePoint } from './BtcPriceChart'
+
+const BtcPriceChart = dynamic(() => import('./BtcPriceChart'), {
+  ssr: false,
+  loading: () => <div className="w-full h-[220px] sm:h-[280px] lg:h-[320px] rounded-xl bg-zinc-900/50 animate-pulse" />,
+})
 import { usePythPrice } from '@/lib/pyth'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
@@ -53,6 +59,20 @@ function getCurrentRoundInfo(): RoundInfo {
   }
 }
 
+interface PoolData {
+  totalUp: number    // USD in UP pool
+  totalDown: number  // USD in DOWN pool
+  priceUp: number    // 0-1 implied probability
+  priceDown: number  // 0-1 implied probability
+}
+
+const FEE_BPS = 0.03 // 3% fee
+
+function calcPayout(amount: number, sidePool: number, totalPool: number): number {
+  if (sidePool + amount <= 0) return 0
+  return ((amount / (sidePool + amount)) * (totalPool + amount)) * (1 - FEE_BPS)
+}
+
 export function MarketCardV4() {
   const [round, setRound] = useState<RoundInfo | null>(null)
   const [amount, setAmount] = useState('')
@@ -60,7 +80,8 @@ export function MarketCardV4() {
   const [error, setError] = useState<string | null>(null)
   const [roundBets, setRoundBets] = useState<{ roundId: number; up: number; down: number } | null>(null)
   const [stxAddress, setStxAddress] = useState<string | null>(null)
-  const [priceHistory, setPriceHistory] = useState<PriceDataPoint[]>([])
+  const [btcPriceHistory, setBtcPriceHistory] = useState<BtcPricePoint[]>([])
+  const [pool, setPool] = useState<PoolData | null>(null)
 
   const lastRoundIdRef = useRef<number | null>(null)
   const openPriceRef = useRef<number | null>(null)
@@ -73,12 +94,12 @@ export function MarketCardV4() {
     const updateRound = () => {
       const newRound = getCurrentRoundInfo()
 
-      // Se mudou de round, reseta
+      // Se mudou de round, reseta apostas mas mantém gráfico contínuo
       if (lastRoundIdRef.current !== newRound.id) {
         lastRoundIdRef.current = newRound.id
         openPriceRef.current = currentPrice
-        setPriceHistory([{ time: 0, up: 50, down: 50 }])
         setRoundBets(null)
+        setPool(null)
       }
 
       // Atualiza preco de abertura se ainda nao temos
@@ -96,6 +117,34 @@ export function MarketCardV4() {
     const interval = setInterval(updateRound, 1000)
     return () => clearInterval(interval)
   }, [currentPrice])
+
+  // Poll pool data from blockchain every 8s
+  useEffect(() => {
+    if (!round) return
+    let cancelled = false
+
+    const fetchPool = async () => {
+      try {
+        const res = await fetch('/api/round')
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (cancelled || !data.ok) return
+        const qUp = data.round?.pool?.qUp ?? 0
+        const qDown = data.round?.pool?.qDown ?? 0
+        const total = qUp + qDown
+        setPool({
+          totalUp: qUp,
+          totalDown: qDown,
+          priceUp: total > 0 ? qUp / total : 0.5,
+          priceDown: total > 0 ? qDown / total : 0.5,
+        })
+      } catch { /* ignore */ }
+    }
+
+    fetchPool()
+    const interval = setInterval(fetchPool, 8000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [round?.id])
 
   // Estado de allowance (verifica no blockchain via API)
   const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(null)
@@ -172,30 +221,21 @@ export function MarketCardV4() {
     return () => clearInterval(interval)
   }, [stxAddress, checkAllowance])
 
-  // Adiciona pontos ao historico de precos
+  // Adiciona pontos ao historico de precos BTC (mantém últimos 5 min)
   useEffect(() => {
-    if (!round || !currentPrice || !openPriceRef.current) return
-
-    const now = Date.now()
-    const timeSinceStart = Math.floor((now - round.startAt) / 1000)
-
-    if (timeSinceStart < 0 || timeSinceStart >= 60) return
-
-    // Calcula preco UP/DOWN baseado na variacao
-    const priceDiff = currentPrice - openPriceRef.current
-    const percentChange = (priceDiff / openPriceRef.current) * 100
-
-    // Simula precos de mercado baseado na variacao
-    // Se subiu, UP fica mais caro, DOWN mais barato
-    const upPrice = Math.min(95, Math.max(5, 50 + percentChange * 10))
-    const downPrice = 100 - upPrice
-
-    setPriceHistory(prev => {
-      const lastPoint = prev[prev.length - 1]
-      if (lastPoint && lastPoint.time === timeSinceStart) {
-        return [...prev.slice(0, -1), { time: timeSinceStart, up: upPrice, down: downPrice }]
+    if (!round || !currentPrice) return
+    const timeSec = Math.floor(Date.now() / 1000)
+    setBtcPriceHistory(prev => {
+      let next: BtcPricePoint[]
+      const last = prev[prev.length - 1]
+      if (last && last.time === timeSec) {
+        next = [...prev.slice(0, -1), { time: timeSec, price: currentPrice }]
+      } else {
+        next = [...prev, { time: timeSec, price: currentPrice }]
       }
-      return [...prev, { time: timeSinceStart, up: upPrice, down: downPrice }]
+      // Cap at 300 entries (~5 min at 1/s) to prevent unbounded growth
+      if (next.length > 300) next = next.slice(-300)
+      return next
     })
   }, [currentPrice, round])
 
@@ -333,6 +373,19 @@ export function MarketCardV4() {
       })
       setAmount('')
 
+      // Optimistic pool update — reflect bet instantly in UI
+      setPool(prev => {
+        const up = (prev?.totalUp ?? 0) + (side === 'UP' ? v : 0)
+        const down = (prev?.totalDown ?? 0) + (side === 'DOWN' ? v : 0)
+        const total = up + down
+        return {
+          totalUp: up,
+          totalDown: down,
+          priceUp: total > 0 ? up / total : 0.5,
+          priceDown: total > 0 ? down / total : 0.5,
+        }
+      })
+
       // Dispara evento para atualizar saldo em outros componentes
       window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
 
@@ -354,9 +407,10 @@ export function MarketCardV4() {
   const amountNum = parseFloat(amount)
   const hasValidAmount = !isNaN(amountNum) && amountNum >= MIN_BET_USD
 
-  // Precos simulados baseados na variacao do BTC
-  const upPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].up / 100 : 0.5
-  const downPrice = 1 - upPrice
+  // Delta entre preço atual e preço de abertura
+  const priceDelta = currentPrice && openPriceRef.current
+    ? currentPrice - openPriceRef.current
+    : null
 
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 bg-grid-pattern overflow-hidden">
@@ -378,23 +432,34 @@ export function MarketCardV4() {
             </div>
           </div>
 
-          {/* Col 2: BTC Price + Open */}
-          <div className="flex flex-col items-center justify-start min-w-0 gap-0.5">
-            <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-              BTC Price
-            </p>
-            <div className="text-lg sm:text-3xl font-bold text-bitcoin leading-none font-mono">
-              <BtcPrice />
+          {/* Col 2: Price to Beat + Current Price (Polymarket style) */}
+          <div className="flex flex-col items-center justify-start min-w-0 gap-1">
+            <div className="flex items-baseline gap-2 sm:gap-3">
+              <div className="flex flex-col items-center">
+                <p className="text-[8px] sm:text-[9px] text-zinc-500 uppercase tracking-wider font-medium">
+                  Price to Beat
+                </p>
+                <span className="font-mono text-xs sm:text-lg font-bold text-zinc-300 leading-none">
+                  ${round?.priceAtStart?.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  }) ?? '—'}
+                </span>
+              </div>
+              <div className="flex flex-col items-center">
+                <p className="text-[8px] sm:text-[9px] text-zinc-500 uppercase tracking-wider font-medium flex items-center gap-1">
+                  Current Price
+                  {priceDelta !== null && (
+                    <span className={`text-[8px] sm:text-[9px] font-mono ${priceDelta >= 0 ? 'text-up' : 'text-down'}`}>
+                      {priceDelta >= 0 ? '▲' : '▼'}${Math.abs(priceDelta).toFixed(0)}
+                    </span>
+                  )}
+                </p>
+                <span className="font-mono text-xs sm:text-lg font-bold text-bitcoin leading-none">
+                  <BtcPrice />
+                </span>
+              </div>
             </div>
-            <p className="text-[10px] sm:text-xs text-zinc-500 mt-0.5">
-              Open:{' '}
-              <span className="font-mono text-bitcoin">
-                ${round?.priceAtStart?.toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                }) ?? '—'}
-              </span>
-            </p>
           </div>
 
           {/* Col 3: Time Left */}
@@ -462,130 +527,161 @@ export function MarketCardV4() {
           </div>
         </div>
 
-        {/* Conteudo principal */}
-        <div className="space-y-3 sm:space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
-          {/* Grafico */}
-          <div className="lg:min-h-[16rem]">
-            {round && priceHistory.length > 0 && (
-              <PriceChart
-                data={priceHistory}
-                roundStartAt={round.startAt}
-                roundEndsAt={round.endsAt}
-                serverTimeSkew={0}
-              />
-            )}
+        {/* BTC Price Chart (full width, Polymarket style) */}
+        <div className="mb-3 sm:mb-4 rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+          {round && (
+            <BtcPriceChart
+              data={btcPriceHistory}
+              openPrice={openPriceRef.current}
+              roundStartAt={round.startAt}
+              roundEndsAt={round.endsAt}
+            />
+          )}
+        </div>
+
+        {/* Trading Controls */}
+        <div className="space-y-3 sm:space-y-4">
+          {/* UP/DOWN Buttons */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <button
+              onClick={() => buy('UP')}
+              disabled={!canTrade}
+              className="flex flex-col items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="text-base sm:text-lg font-bold leading-tight">Up</span>
+              <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
+                {Math.round((pool?.priceUp ?? 0.5) * 100)}¢ · {((pool?.priceUp ?? 0.5) > 0 ? (1 / (pool?.priceUp ?? 0.5)) : 2).toFixed(1)}x
+              </span>
+            </button>
+            <button
+              onClick={() => buy('DOWN')}
+              disabled={!canTrade}
+              className="flex flex-col items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="text-base sm:text-lg font-bold leading-tight">Down</span>
+              <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
+                {Math.round((pool?.priceDown ?? 0.5) * 100)}¢ · {((pool?.priceDown ?? 0.5) > 0 ? (1 / (pool?.priceDown ?? 0.5)) : 2).toFixed(1)}x
+              </span>
+            </button>
           </div>
 
-          {/* Botoes UP/DOWN + amount */}
-          <div className="space-y-3 sm:space-y-4">
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-3">
-              <button
-                onClick={() => buy('UP')}
-                disabled={!canTrade}
-                className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-up/50 bg-up/5 px-3 py-2 sm:py-3 lg:py-3 transition hover:border-up hover:bg-up/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="text-base sm:text-xl lg:text-xl font-mono font-bold text-up">UP</span>
-                <span className="text-[11px] sm:text-xs text-zinc-500 mt-0">Price goes up</span>
-                <span className="font-mono text-sm lg:text-base font-semibold text-up mt-0.5">
-                  {(upPrice * 100).toFixed(1)}¢
-                </span>
-              </button>
-              <button
-                onClick={() => buy('DOWN')}
-                disabled={!canTrade}
-                className="group relative flex flex-col items-center justify-center rounded-lg border-2 border-down/50 bg-down/5 px-3 py-2 sm:py-3 lg:py-3 transition hover:border-down hover:bg-down/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="text-base sm:text-xl lg:text-xl font-mono font-bold text-down">DOWN</span>
-                <span className="text-[11px] sm:text-xs text-zinc-500 mt-0">Price goes down</span>
-                <span className="font-mono text-sm lg:text-base font-semibold text-down mt-0.5">
-                  {(downPrice * 100).toFixed(1)}¢
-                </span>
-              </button>
-            </div>
+          {/* Pool ratio bar */}
+          {(() => {
+            const total = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
+            const upPct = total > 0 ? ((pool?.totalUp ?? 0) / total) * 100 : 50
+            return (
+              <div className="space-y-1">
+                <div className="h-1.5 rounded-full overflow-hidden flex bg-zinc-800">
+                  <div className="bg-up/70 transition-all duration-500" style={{ width: `${upPct}%` }} />
+                  <div className="bg-down/70 transition-all duration-500" style={{ width: `${100 - upPct}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                  <span>{Math.round(upPct)}% Up</span>
+                  <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
+                  <span>{Math.round(100 - upPct)}% Down</span>
+                </div>
+              </div>
+            )
+          })()}
 
-            {/* Input de valor */}
-            <div>
-              {isTradingOpen ? (
-                stxAddress ? (
-                  checkingAllowance ? (
-                    // Verificando allowance
-                    <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <div className="h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm">Checking approval status...</span>
-                      </div>
-                    </div>
-                  ) : tradingEnabled !== true ? (
-                    // Precisa habilitar trading primeiro
-                    <div className="space-y-3">
-                      <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
-                        <p className="font-medium">Enable trading to place bets</p>
-                        <p className="text-xs text-amber-300/70 mt-1">
-                          One-time approval to allow the contract to use your USDCx
-                        </p>
-                      </div>
-                      <button
-                        onClick={enableTrading}
-                        disabled={trading}
-                        className="w-full py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                      >
-                        {trading ? 'Awaiting approval...' : 'Enable Trading'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {PRESETS.map((d) => (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => setAmount(String(d))}
-                            className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
-                              amount === String(d)
-                                ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
-                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                            }`}
-                          >
-                            ${d}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder="Custom"
-                          value={amount}
-                          onChange={(e) => setAmount(e.target.value)}
-                          className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
-                        />
-                        <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
-                      </div>
-                      {hasValidAmount && (
-                        <p className="text-xs text-zinc-500">
-                          Potential win: <span className="text-emerald-400">${(amountNum / upPrice).toFixed(2)}</span> if UP,{' '}
-                          <span className="text-emerald-400">${(amountNum / downPrice).toFixed(2)}</span> if DOWN
-                        </p>
-                      )}
-                    </div>
-                  )
-                ) : (
+          {/* Amount Input */}
+          <div>
+            {isTradingOpen ? (
+              stxAddress ? (
+                checkingAllowance ? (
                   <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                    <p className="text-center text-amber-400/90 text-sm">
-                      Connect wallet to trade
-                    </p>
+                    <div className="flex items-center gap-2 text-zinc-400">
+                      <div className="h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-sm">Checking approval status...</span>
+                    </div>
+                  </div>
+                ) : tradingEnabled !== true ? (
+                  <div className="space-y-3">
+                    <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
+                      <p className="font-medium">Enable trading to place bets</p>
+                      <p className="text-xs text-amber-300/70 mt-1">
+                        One-time approval to allow the contract to use your USDCx
+                      </p>
+                    </div>
+                    <button
+                      onClick={enableTrading}
+                      disabled={trading}
+                      className="w-full py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                      {trading ? 'Awaiting approval...' : 'Enable Trading'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {PRESETS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setAmount(String(d))}
+                          className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
+                            amount === String(d)
+                              ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
+                              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                          }`}
+                        >
+                          ${d}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="Custom"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                      />
+                      <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
+                    </div>
+                    {/* Payout estimate */}
+                    {hasValidAmount && (
+                      <div className="flex gap-2 text-[11px] font-mono text-zinc-500 px-1">
+                        <span className="text-up">
+                          Up win: ${calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
+                          <span className="text-zinc-600 ml-0.5">
+                            ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
+                              ? (calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
+                              : (1 / (1 - FEE_BPS)).toFixed(1)
+                            )}x)
+                          </span>
+                        </span>
+                        <span className="text-zinc-700">|</span>
+                        <span className="text-down">
+                          Down win: ${calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
+                          <span className="text-zinc-600 ml-0.5">
+                            ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
+                              ? (calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
+                              : (1 / (1 - FEE_BPS)).toFixed(1)
+                            )}x)
+                          </span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )
               ) : (
                 <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                  <p className="text-center text-zinc-500 text-sm">
-                    Waiting for next round...
+                  <p className="text-center text-amber-400/90 text-sm">
+                    Connect wallet to trade
                   </p>
                 </div>
-              )}
-            </div>
+              )
+            ) : (
+              <div className="flex items-center justify-center min-h-[4.5rem] py-2">
+                <p className="text-center text-zinc-500 text-sm">
+                  Waiting for next round...
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

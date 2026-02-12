@@ -1,7 +1,5 @@
 import Link from 'next/link'
 import { MarketCardV4Wrapper } from '@/components/MarketCardV4Wrapper'
-import { TradingViewBtcChart } from '@/components/TradingViewBtcChart'
-import { TradingViewTechnicalAnalysis } from '@/components/TradingViewTechnicalAnalysis'
 import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrapper'
 import { MintTestTokensWrapper } from '@/components/MintTestTokensWrapper'
 import { ClaimButtonWrapper } from '@/components/ClaimButtonWrapper'
@@ -42,17 +40,7 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="mb-4 sm:mb-6 rounded-2xl border border-zinc-800 bg-zinc-900/80 overflow-hidden">
-          <div className="h-[340px] sm:h-[400px] lg:h-[420px]">
-            <TradingViewBtcChart />
-          </div>
-        </section>
-
         <MarketCardV4Wrapper />
-
-        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 overflow-hidden flex justify-center sm:justify-start">
-          <TradingViewTechnicalAnalysis />
-        </section>
 
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 sm:p-5 text-sm text-zinc-400">
           <h3 className="font-semibold text-zinc-300 mb-2">How it works</h3>

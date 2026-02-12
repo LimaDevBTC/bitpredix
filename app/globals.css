@@ -45,6 +45,11 @@ input[type="number"] {
   background-size: 32px 32px;
 }
 
+/* Hide TradingView logo from lightweight-charts */
+[id^="tv-attr-logo"] {
+  display: none !important;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -62,9 +67,4 @@ input[type="number"] {
   50% {
     opacity: 0;
   }
-}
-
-/* Esconde o rodapé/crédito que o script TradingView injeta no container */
-.tradingview-widget-container .tradingview-widget-copyright {
-  display: none !important;
 }
