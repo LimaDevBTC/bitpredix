@@ -131,12 +131,18 @@ export function MarketCardV4() {
         if (cancelled || !data.ok) return
         const qUp = data.round?.pool?.qUp ?? 0
         const qDown = data.round?.pool?.qDown ?? 0
-        const total = qUp + qDown
-        setPool({
-          totalUp: qUp,
-          totalDown: qDown,
-          priceUp: total > 0 ? qUp / total : 0.5,
-          priceDown: total > 0 ? qDown / total : 0.5,
+        // Never regress below optimistic values — blockchain tx may not be confirmed yet
+        // Pool values can only increase during a round (bets are irrevocable)
+        setPool(prev => {
+          const up = Math.max(qUp, prev?.totalUp ?? 0)
+          const down = Math.max(qDown, prev?.totalDown ?? 0)
+          const total = up + down
+          return {
+            totalUp: up,
+            totalDown: down,
+            priceUp: total > 0 ? up / total : 0.5,
+            priceDown: total > 0 ? down / total : 0.5,
+          }
         })
       } catch { /* ignore */ }
     }
@@ -415,55 +421,23 @@ export function MarketCardV4() {
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 bg-grid-pattern overflow-hidden">
       {/* Header */}
-      <div className="px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-zinc-800">
-        <div className="grid grid-cols-3 gap-2 sm:gap-4 items-start">
-          {/* Col 1: Titulo + Round */}
-          <div className="min-w-0 space-y-1 sm:space-y-1.5">
+      <div className="px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-zinc-800 space-y-2 sm:space-y-3">
+        {/* Row 1: Title + Timer */}
+        <div className="flex items-start justify-between">
+          <div className="min-w-0">
             <h2 className="text-sm sm:text-base font-semibold text-zinc-200 leading-tight">
               BTC next minute
             </h2>
-            <div className="text-[11px] sm:text-xs text-zinc-500">
-              <span className="font-mono text-zinc-400">
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[11px] sm:text-xs font-mono text-zinc-400">
                 {round ? formatRoundId(round.id) : '—'}
               </span>
-            </div>
-            <div className="text-[9px] sm:text-[10px] text-emerald-400/80">
-              v4 - Pyth Oracle
-            </div>
-          </div>
-
-          {/* Col 2: Price to Beat + Current Price (Polymarket style) */}
-          <div className="flex flex-col items-center justify-start min-w-0 gap-1">
-            <div className="flex items-baseline gap-2 sm:gap-3">
-              <div className="flex flex-col items-center">
-                <p className="text-[8px] sm:text-[9px] text-zinc-500 uppercase tracking-wider font-medium">
-                  Price to Beat
-                </p>
-                <span className="font-mono text-xs sm:text-lg font-bold text-zinc-300 leading-none">
-                  ${round?.priceAtStart?.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  }) ?? '—'}
-                </span>
-              </div>
-              <div className="flex flex-col items-center">
-                <p className="text-[8px] sm:text-[9px] text-zinc-500 uppercase tracking-wider font-medium flex items-center gap-1">
-                  Current Price
-                  {priceDelta !== null && (
-                    <span className={`text-[8px] sm:text-[9px] font-mono ${priceDelta >= 0 ? 'text-up' : 'text-down'}`}>
-                      {priceDelta >= 0 ? '▲' : '▼'}${Math.abs(priceDelta).toFixed(0)}
-                    </span>
-                  )}
-                </p>
-                <span className="font-mono text-xs sm:text-lg font-bold text-bitcoin leading-none">
-                  <BtcPrice />
-                </span>
-              </div>
+              <span className="text-[9px] sm:text-[10px] text-emerald-400/80">
+                v4 · Pyth Oracle
+              </span>
             </div>
           </div>
-
-          {/* Col 3: Time Left */}
-          <div className="flex flex-col items-end justify-start min-w-0 gap-0.5">
+          <div className="flex flex-col items-end shrink-0">
             <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
               Time Left
             </p>
@@ -471,17 +445,41 @@ export function MarketCardV4() {
               <Countdown
                 endsAt={round.endsAt}
                 serverTimeSkew={0}
-                onEnd={() => {
-                  // Round terminou, proximo round comeca automaticamente
-                }}
+                onEnd={() => {}}
                 onTick={() => {}}
-                className="text-lg sm:text-3xl font-bold text-amber-400 leading-none tabular-nums"
+                className="text-xl sm:text-3xl font-bold text-amber-400 leading-none tabular-nums"
               />
             ) : (
-              <div className="text-lg sm:text-3xl font-bold text-zinc-600 leading-none">
-                <span className="font-mono">—</span>
-              </div>
+              <span className="text-xl sm:text-3xl font-bold font-mono text-zinc-600 leading-none">—</span>
             )}
+          </div>
+        </div>
+
+        {/* Row 2: Prices */}
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
+              Price to Beat
+            </p>
+            <span className="font-mono text-sm sm:text-lg font-bold text-zinc-300 leading-none">
+              ${round?.priceAtStart?.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              }) ?? '—'}
+            </span>
+          </div>
+          <div className="text-right">
+            <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium flex items-center justify-end gap-1">
+              Current Price
+              {priceDelta !== null && (
+                <span className={`font-mono ${priceDelta >= 0 ? 'text-up' : 'text-down'}`}>
+                  {priceDelta >= 0 ? '▲' : '▼'}${Math.abs(priceDelta).toFixed(0)}
+                </span>
+              )}
+            </p>
+            <span className="font-mono text-sm sm:text-lg font-bold text-bitcoin leading-none">
+              <BtcPrice />
+            </span>
           </div>
         </div>
       </div>

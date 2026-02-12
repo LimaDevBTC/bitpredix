@@ -198,17 +198,22 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           indicatorStateRef.current = stateKey
           if (indicatorPos === 'above') {
             ind.style.display = 'flex'
-            ind.style.top = '2px'
+            ind.style.top = '4px'
             ind.style.bottom = ''
-            ind.textContent = '▲'
+            ind.textContent = 'Open ▲'
           } else if (indicatorPos === 'below') {
             ind.style.display = 'flex'
             ind.style.top = ''
             ind.style.bottom = '28px'
-            ind.textContent = '▼'
+            ind.textContent = 'Open ▼'
           } else {
             ind.style.display = 'none'
           }
+        }
+        // Keep indicator aligned to the left edge of the price axis
+        if (ind && indicatorPos !== 'hidden') {
+          const pw = chart.priceScale('right').width()
+          ind.style.right = `${pw + 6}px`
         }
 
         rafIdRef.current = requestAnimationFrame(animate)
@@ -293,7 +298,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
       <div
         ref={openIndicatorRef}
         style={{ display: 'none' }}
-        className="absolute right-0 w-[52px] justify-center items-center text-[9px] font-mono text-zinc-500 pointer-events-none z-10 select-none"
+        className="absolute items-center px-1.5 py-0.5 rounded border border-dashed border-white/20 bg-zinc-900/80 backdrop-blur-sm text-[9px] font-mono text-zinc-400 pointer-events-none z-10 select-none"
       />
     </div>
   )
