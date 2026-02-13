@@ -32,17 +32,6 @@ interface RoundInfo {
   priceAtStart: number | null
 }
 
-function formatRoundId(roundId: number): string {
-  const ts = roundId * 60 * 1000
-  const d = new Date(ts)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hour = String(d.getHours()).padStart(2, '0')
-  const minute = String(d.getMinutes()).padStart(2, '0')
-  return `#${year}${month}${day}${hour}${minute}`
-}
-
 function getCurrentRoundInfo(): RoundInfo {
   const now = Date.now()
   const roundId = Math.floor(now / ROUND_DURATION_MS)
@@ -421,67 +410,51 @@ export function MarketCardV4() {
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 bg-grid-pattern overflow-hidden">
       {/* Header */}
-      <div className="px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-zinc-800 space-y-2 sm:space-y-3">
-        {/* Row 1: Title + Timer */}
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <h2 className="text-sm sm:text-base font-semibold text-zinc-200 leading-tight">
-              BTC next minute
-            </h2>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[11px] sm:text-xs font-mono text-zinc-400">
-                {round ? formatRoundId(round.id) : '—'}
-              </span>
-              <span className="text-[9px] sm:text-[10px] text-emerald-400/80">
-                v4 · Pyth Oracle
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-col items-end shrink-0">
-            <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-              Time Left
-            </p>
-            {round ? (
-              <Countdown
-                endsAt={round.endsAt}
-                serverTimeSkew={0}
-                onEnd={() => {}}
-                onTick={() => {}}
-                className="text-xl sm:text-3xl font-bold text-amber-400 leading-none tabular-nums"
-              />
-            ) : (
-              <span className="text-xl sm:text-3xl font-bold font-mono text-zinc-600 leading-none">—</span>
-            )}
-          </div>
+      <div className="px-3 sm:px-5 py-2.5 sm:py-3 border-b border-zinc-800 flex items-center gap-2 sm:gap-3">
+        {/* Pair */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/btc.svg"
+            alt="BTC"
+            className="w-5 h-5 sm:w-6 sm:h-6"
+          />
+          <span className="text-sm sm:text-base font-semibold text-zinc-200">BTC/USD</span>
         </div>
 
-        {/* Row 2: Prices */}
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-              Price to Beat
-            </p>
-            <span className="font-mono text-sm sm:text-lg font-bold text-zinc-300 leading-none">
-              ${round?.priceAtStart?.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              }) ?? '—'}
+        {/* Prices: Open → Current + Delta */}
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0 justify-center">
+          <span className="font-mono text-xs text-zinc-500 hidden sm:inline">
+            ${round?.priceAtStart?.toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            }) ?? '—'}
+          </span>
+          <span className="text-zinc-600 text-xs hidden sm:inline">→</span>
+          <span className="font-mono text-sm sm:text-base font-bold text-bitcoin">
+            <BtcPrice />
+          </span>
+          {priceDelta !== null && (
+            <span className={`shrink-0 text-[10px] sm:text-xs font-mono font-medium px-1.5 py-0.5 rounded-md ${
+              priceDelta >= 0 ? 'text-up bg-up/10' : 'text-down bg-down/10'
+            }`}>
+              {priceDelta >= 0 ? '+' : '-'}${Math.abs(priceDelta).toFixed(0)}
             </span>
-          </div>
-          <div className="text-right">
-            <p className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-wider font-medium flex items-center justify-end gap-1">
-              Current Price
-              {priceDelta !== null && (
-                <span className={`font-mono ${priceDelta >= 0 ? 'text-up' : 'text-down'}`}>
-                  {priceDelta >= 0 ? '▲' : '▼'}${Math.abs(priceDelta).toFixed(0)}
-                </span>
-              )}
-            </p>
-            <span className="font-mono text-sm sm:text-lg font-bold text-bitcoin leading-none">
-              <BtcPrice />
-            </span>
-          </div>
+          )}
         </div>
+
+        {/* Countdown */}
+        {round ? (
+          <Countdown
+            endsAt={round.endsAt}
+            serverTimeSkew={0}
+            onEnd={() => {}}
+            onTick={() => {}}
+            className="text-base sm:text-xl font-bold text-amber-400 leading-none tabular-nums shrink-0"
+          />
+        ) : (
+          <span className="text-base sm:text-xl font-bold font-mono text-zinc-600 leading-none shrink-0">—</span>
+        )}
       </div>
 
       <div className="px-3 pt-3 pb-2 sm:p-6">
@@ -514,7 +487,7 @@ export function MarketCardV4() {
               <div className="w-full h-full px-4 rounded-lg bg-zinc-800/60 text-zinc-400 text-sm border border-zinc-700/50 flex flex-col justify-center">
                 <p className="font-medium text-zinc-300 leading-tight">Market open</p>
                 <p className="text-xs text-zinc-500 mt-0.5 leading-tight">
-                  Choose UP or DOWN and enter the amount to bet
+                  Set the amount and choose UP or DOWN to predict
                 </p>
               </div>
             ) : (
@@ -546,7 +519,7 @@ export function MarketCardV4() {
               disabled={!canTrade}
               className="flex flex-col items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="text-base sm:text-lg font-bold leading-tight">Up</span>
+              <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">UP</span>
               <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
                 {Math.round((pool?.priceUp ?? 0.5) * 100)}¢ · {((pool?.priceUp ?? 0.5) > 0 ? (1 / (pool?.priceUp ?? 0.5)) : 2).toFixed(1)}x
               </span>
@@ -556,7 +529,7 @@ export function MarketCardV4() {
               disabled={!canTrade}
               className="flex flex-col items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="text-base sm:text-lg font-bold leading-tight">Down</span>
+              <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">DOWN</span>
               <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
                 {Math.round((pool?.priceDown ?? 0.5) * 100)}¢ · {((pool?.priceDown ?? 0.5) > 0 ? (1 / (pool?.priceDown ?? 0.5)) : 2).toFixed(1)}x
               </span>
@@ -574,9 +547,9 @@ export function MarketCardV4() {
                   <div className="bg-down/70 transition-all duration-500" style={{ width: `${100 - upPct}%` }} />
                 </div>
                 <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
-                  <span>{Math.round(upPct)}% Up</span>
+                  <span>{Math.round(upPct)}% UP</span>
                   <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
-                  <span>{Math.round(100 - upPct)}% Down</span>
+                  <span>{Math.round(100 - upPct)}% DOWN</span>
                 </div>
               </div>
             )
@@ -644,7 +617,7 @@ export function MarketCardV4() {
                     {hasValidAmount && (
                       <div className="flex gap-2 text-[11px] font-mono text-zinc-500 px-1">
                         <span className="text-up">
-                          Up win: ${calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
+                          UP win: ${calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
                           <span className="text-zinc-600 ml-0.5">
                             ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
                               ? (calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
@@ -654,7 +627,7 @@ export function MarketCardV4() {
                         </span>
                         <span className="text-zinc-700">|</span>
                         <span className="text-down">
-                          Down win: ${calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
+                          DOWN win: ${calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
                           <span className="text-zinc-600 ml-0.5">
                             ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
                               ? (calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)

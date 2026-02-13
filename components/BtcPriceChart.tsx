@@ -90,7 +90,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           borderColor: 'rgba(255, 255, 255, 0.06)',
           timeVisible: true,
           secondsVisible: true,
-          rightOffset: 35,
+          rightOffset: 40,
           barSpacing: 1,
         },
         rightPriceScale: {
@@ -210,10 +210,10 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
             ind.style.display = 'none'
           }
         }
-        // Keep indicator aligned to the left edge of the price axis
+        // Match native title text position: flush against left edge of price scale
         if (ind && indicatorPos !== 'hidden') {
           const pw = chart.priceScale('right').width()
-          ind.style.right = `${pw + 6}px`
+          ind.style.right = `${pw}px`
         }
 
         rafIdRef.current = requestAnimationFrame(animate)
@@ -298,7 +298,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
       <div
         ref={openIndicatorRef}
         style={{ display: 'none' }}
-        className="absolute items-center px-1.5 py-0.5 rounded border border-dashed border-white/20 bg-zinc-900/80 backdrop-blur-sm text-[9px] font-mono text-zinc-400 pointer-events-none z-10 select-none"
+        className="absolute text-[9px] font-mono text-white/40 whitespace-nowrap pointer-events-none z-10 select-none"
       />
     </div>
   )
