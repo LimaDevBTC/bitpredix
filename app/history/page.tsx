@@ -45,7 +45,7 @@ function HistoryContent() {
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
-              Back to trading
+              Back to predictions
             </Link>
           </div>
           <p className="text-zinc-500 text-xs mt-2 sm:mt-3">
