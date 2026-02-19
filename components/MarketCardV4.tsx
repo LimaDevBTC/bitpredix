@@ -61,6 +61,7 @@ export function MarketCardV4() {
   const [trading, setTrading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [roundBets, setRoundBets] = useState<{ roundId: number; up: number; down: number } | null>(null)
+  const [pendingBet, setPendingBet] = useState<{ side: Side; amount: number; shares: number } | null>(null)
   const [stxAddress, setStxAddress] = useState<string | null>(null)
   const [btcPriceHistory, setBtcPriceHistory] = useState<BtcPricePoint[]>([])
   const [pool, setPool] = useState<PoolData | null>(null)
@@ -83,6 +84,7 @@ export function MarketCardV4() {
         lastRoundIdRef.current = newRound.id
         openPriceRef.current = currentPrice
         setRoundBets(null)
+        setPendingBet(null)
         setPool(null)
       }
 
@@ -316,7 +318,8 @@ export function MarketCardV4() {
     }
   }
 
-  const buy = async (side: Side) => {
+  // Valida e mostra confirmação antes de apostar
+  const requestBet = (side: Side) => {
     const v = parseFloat(amount)
     if (isNaN(v) || v <= 0) {
       setError('Enter a valid amount')
@@ -342,7 +345,18 @@ export function MarketCardV4() {
       setError('Enable trading first (click button below)')
       return
     }
+    setError(null)
+    const price = side === 'UP' ? (pool?.priceUp ?? 0.5) : (pool?.priceDown ?? 0.5)
+    const shares = price > 0 ? Math.floor(v / price) : v
+    setPendingBet({ side, amount: v, shares })
+  }
 
+  // Executa a aposta após confirmação
+  const confirmBet = async () => {
+    if (!pendingBet || !round || !stxAddress) return
+
+    const { side, amount: v } = pendingBet
+    setPendingBet(null)
     setTrading(true)
     setError(null)
 
@@ -502,6 +516,36 @@ export function MarketCardV4() {
                   Dismiss
                 </button>
               </div>
+            ) : pendingBet ? (
+              <div className={`w-full h-full px-4 rounded-lg border text-sm flex items-center justify-between gap-3 ${
+                pendingBet.side === 'UP'
+                  ? 'bg-up/10 border-up/30'
+                  : 'bg-down/10 border-down/30'
+              }`}>
+                <span className="text-zinc-300">
+                  Buy <span className="font-bold text-zinc-100">{pendingBet.shares}</span> <span className={`font-bold ${pendingBet.side === 'UP' ? 'text-up' : 'text-down'}`}>
+                    {pendingBet.side}
+                  </span> for <span className="font-bold text-zinc-100">${pendingBet.amount}</span> ?
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setPendingBet(null)}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-medium transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmBet}
+                    className={`px-3 py-1.5 rounded-lg text-white text-xs font-bold transition ${
+                      pendingBet.side === 'UP'
+                        ? 'bg-up hover:bg-up/80'
+                        : 'bg-down hover:bg-down/80'
+                    }`}
+                  >
+                    Confirm Prediction
+                  </button>
+                </div>
+              </div>
             ) : trading ? (
               <div className="w-full h-full px-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm flex items-center gap-3">
                 <div className="h-5 w-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
@@ -509,7 +553,7 @@ export function MarketCardV4() {
               </div>
             ) : roundBets && roundBets.roundId === round?.id && (roundBets.up > 0 || roundBets.down > 0) ? (
               <div className="w-full h-full px-4 rounded-lg bg-zinc-800/80 text-zinc-400 text-sm flex items-center gap-1">
-                <span className="text-zinc-500">Your bets: </span>
+                <span className="text-zinc-500">Your predictions: </span>
                 {roundBets.up > 0 && <span className="text-up font-medium">${roundBets.up} UP</span>}
                 {roundBets.up > 0 && roundBets.down > 0 && <span className="text-zinc-600"> | </span>}
                 {roundBets.down > 0 && <span className="text-down font-medium">${roundBets.down} DOWN</span>}
@@ -653,7 +697,7 @@ export function MarketCardV4() {
           {/* UP/DOWN Buttons */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
-              onClick={() => buy('UP')}
+              onClick={() => requestBet('UP')}
               disabled={!canTrade}
               className="flex flex-col items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -663,7 +707,7 @@ export function MarketCardV4() {
               </span>
             </button>
             <button
-              onClick={() => buy('DOWN')}
+              onClick={() => requestBet('DOWN')}
               disabled={!canTrade}
               className="flex flex-col items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >

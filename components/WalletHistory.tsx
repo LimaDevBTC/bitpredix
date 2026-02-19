@@ -227,6 +227,16 @@ export function WalletHistory() {
     }
     setOffset(0)
     fetchHistory(stxAddress, 0, false)
+
+    // Refresh after user interactions (bet placed, claim, mint, etc.)
+    const onBalanceChanged = () => {
+      setTimeout(() => fetchHistory(stxAddress, 0, false), 2000)
+    }
+    window.addEventListener('bitpredix:balance-changed', onBalanceChanged)
+
+    return () => {
+      window.removeEventListener('bitpredix:balance-changed', onBalanceChanged)
+    }
   }, [stxAddress, fetchHistory])
 
   const loadMore = () => {
