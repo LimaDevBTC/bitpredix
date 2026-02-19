@@ -613,9 +613,9 @@ export function MarketCardV4() {
                 ? 'opacity-30 pointer-events-none select-none'
                 : ''
             }`}>
-              <div className="flex items-center gap-1.5">
-                <div className="relative w-24 shrink-0">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">$</span>
+              <div className="flex items-center gap-1">
+                <div className="relative w-[72px] sm:w-20 shrink-0">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs pointer-events-none">$</span>
                   <input
                     type="number"
                     min="0"
@@ -623,7 +623,7 @@ export function MarketCardV4() {
                     placeholder="0"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full font-mono pl-6 pr-2 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                    className="w-full font-mono pl-5 pr-1 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-xs sm:text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
                   />
                 </div>
                 {PRESETS.map((d) => (
@@ -631,7 +631,7 @@ export function MarketCardV4() {
                     key={d}
                     type="button"
                     onClick={() => setAmount(String(d))}
-                    className={`px-4 py-2 rounded-lg font-mono text-sm transition ${
+                    className={`px-2 sm:px-3 py-2 rounded-lg font-mono text-xs transition ${
                       amount === String(d)
                         ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
                         : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
