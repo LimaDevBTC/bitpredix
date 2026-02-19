@@ -517,32 +517,30 @@ export function MarketCardV4() {
                 </button>
               </div>
             ) : pendingBet ? (
-              <div className={`w-full h-full px-4 rounded-lg border text-sm flex items-center justify-between gap-3 ${
+              <div className={`w-full h-full px-3 sm:px-4 rounded-lg border text-xs sm:text-sm flex items-center justify-between gap-2 ${
                 pendingBet.side === 'UP'
                   ? 'bg-up/10 border-up/30'
                   : 'bg-down/10 border-down/30'
               }`}>
-                <span className="text-zinc-300">
-                  Buy <span className="font-bold text-zinc-100">{pendingBet.shares}</span> <span className={`font-bold ${pendingBet.side === 'UP' ? 'text-up' : 'text-down'}`}>
-                    {pendingBet.side}
-                  </span> for <span className="font-bold text-zinc-100">${pendingBet.amount}</span> ?
+                <span className="text-zinc-300 whitespace-nowrap">
+                  Buy <span className="font-bold text-zinc-100">{pendingBet.shares}</span> <span className={`font-bold ${pendingBet.side === 'UP' ? 'text-up' : 'text-down'}`}>{pendingBet.side}</span> for <span className="font-bold text-zinc-100">${pendingBet.amount}</span>?
                 </span>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => setPendingBet(null)}
-                    className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-medium transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[11px] font-medium transition"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={confirmBet}
-                    className={`px-3 py-1.5 rounded-lg text-white text-xs font-bold transition ${
+                    className={`px-2.5 py-1.5 rounded-lg text-white text-[11px] font-bold transition ${
                       pendingBet.side === 'UP'
                         ? 'bg-up hover:bg-up/80'
                         : 'bg-down hover:bg-down/80'
                     }`}
                   >
-                    Confirm Prediction
+                    Confirm
                   </button>
                 </div>
               </div>
