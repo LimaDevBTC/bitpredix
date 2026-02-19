@@ -483,7 +483,7 @@ export function MarketCardV4() {
             <span className={`shrink-0 text-[10px] sm:text-xs font-mono font-medium px-1.5 py-0.5 rounded-md ${
               priceDelta >= 0 ? 'text-up bg-up/10' : 'text-down bg-down/10'
             }`}>
-              {priceDelta >= 0 ? '+' : '-'}${Math.abs(priceDelta).toFixed(0)}
+              {priceDelta >= 0 ? '+' : '-'}${Math.abs(priceDelta).toFixed(2)}
             </span>
           )}
         </div>
