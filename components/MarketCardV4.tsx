@@ -73,6 +73,7 @@ export function MarketCardV4() {
   const [pool, setPool] = useState<PoolData | null>(null)
   const [recentRounds, setRecentRounds] = useState<{ id: string; outcome: 'UP' | 'DOWN' }[]>([])
 
+  const roundId = round?.id ?? null
   const lastRoundIdRef = useRef<number | null>(null)
   const openPriceRef = useRef<number | null>(null)
 
@@ -140,7 +141,7 @@ export function MarketCardV4() {
     fetchPool()
     const interval = setInterval(fetchPool, 8000)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [round?.id])
+  }, [roundId])
 
   // Fetch recent round outcomes from Pyth 1-min candle data
   // Re-runs on round change + delayed retry (candle may not be available instantly)
@@ -179,7 +180,7 @@ export function MarketCardV4() {
     // Retry after 3s — Pyth candle for the just-ended round may not be ready immediately
     const retryId = setTimeout(fetchHistory, 3000)
     return () => { cancelled = true; clearTimeout(retryId) }
-  }, [round?.id])
+  }, [roundId])
 
   // Estado de allowance (verifica no blockchain via API)
   const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(null)
