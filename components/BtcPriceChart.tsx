@@ -27,6 +27,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null)
   const priceLineRef = useRef<IPriceLine | null>(null)
+  const currentPriceLineRef = useRef<IPriceLine | null>(null)
   const openIndicatorRef = useRef<HTMLDivElement>(null)
   const openPriceRef = useRef<number | null>(null)
   const indicatorStateRef = useRef('')
@@ -113,8 +114,21 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
         crosshairMarkerBorderColor: '#F7931A',
         lastPriceAnimation: LastPriceAnimationMode.Continuous,
         priceLineVisible: false,
-        lastValueVisible: true,
+        lastValueVisible: false,
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
+      })
+
+      // Custom current-price label (replaces lastValueVisible to control text color)
+      currentPriceLineRef.current = series.createPriceLine({
+        price: 0,
+        color: 'transparent',
+        lineVisible: false,
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: true,
+        axisLabelColor: '#F7931A',
+        axisLabelTextColor: '#000',
+        title: '',
       })
 
       chartRef.current = chart
@@ -180,9 +194,14 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
               value: newPrice,
             })
           }
+
+          // Update current-price axis label
+          if (currentPriceLineRef.current) {
+            currentPriceLineRef.current.applyOptions({ price: newPrice })
+          }
         }
 
-        // Open price off-screen indicator
+        // Open price off-screen indicator + trend coloring
         const op = openPriceRef.current
         const ind = openIndicatorRef.current
         const ctr = containerRef.current
@@ -193,7 +212,10 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           if (coord !== null && coord < 0) indicatorPos = 'above'
           else if (coord !== null && coord > h) indicatorPos = 'below'
         }
-        const stateKey = `${indicatorPos}-${op}`
+        const isAbove = displayedPriceRef.current !== null && op !== null && displayedPriceRef.current >= op
+        const trendColor = isAbove ? '#22C55E' : '#EF4444'
+        const trendColorLine = isAbove ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)'
+        const stateKey = `${indicatorPos}-${op}-${isAbove}`
         if (ind && stateKey !== indicatorStateRef.current) {
           indicatorStateRef.current = stateKey
           if (indicatorPos === 'above') {
@@ -201,13 +223,23 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
             ind.style.top = '4px'
             ind.style.bottom = ''
             ind.textContent = 'Open ▲'
+            ind.style.color = trendColor
           } else if (indicatorPos === 'below') {
             ind.style.display = 'flex'
             ind.style.top = ''
             ind.style.bottom = '28px'
             ind.textContent = 'Open ▼'
+            ind.style.color = trendColor
           } else {
             ind.style.display = 'none'
+          }
+          // Hide price line label when off-screen indicator is visible (avoid duplicate "Open")
+          if (priceLineRef.current) {
+            if (indicatorPos === 'hidden') {
+              priceLineRef.current.applyOptions({ title: 'Open', axisLabelVisible: true, color: trendColorLine, axisLabelColor: trendColor, axisLabelTextColor: '#000' })
+            } else {
+              priceLineRef.current.applyOptions({ title: '', axisLabelVisible: false, color: trendColorLine })
+            }
           }
         }
         // Match native title text position: flush against left edge of price scale
@@ -233,6 +265,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
         chartRef.current = null
         seriesRef.current = null
         priceLineRef.current = null
+        currentPriceLineRef.current = null
 
       }
       displayedPriceRef.current = null
@@ -283,7 +316,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           axisLabelColor: '#27272a',
-          axisLabelTextColor: '#a1a1aa',
+          axisLabelTextColor: '#000',
           title: 'Open',
         })
       }

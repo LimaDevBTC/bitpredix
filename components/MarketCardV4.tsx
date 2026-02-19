@@ -512,6 +512,117 @@ export function MarketCardV4() {
 
         {/* Trading Controls */}
         <div className="space-y-3 sm:space-y-4">
+          {/* Amount Input — always rendered, dimmed when not interactive */}
+          <div className="relative">
+            <div className={`space-y-2 transition-opacity duration-300 ${
+              (!isTradingOpen || !stxAddress || checkingAllowance || tradingEnabled !== true)
+                ? 'opacity-30 pointer-events-none select-none'
+                : ''
+            }`}>
+              <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {PRESETS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setAmount(String(d))}
+                    className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
+                      amount === String(d)
+                        ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                    }`}
+                  >
+                    ${d}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="Custom"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                />
+                <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
+              </div>
+              {/* Payout estimate */}
+              {hasValidAmount && (
+                <div className="flex gap-2 text-[11px] font-mono text-zinc-500 px-1">
+                  <span className="text-up">
+                    UP win: ${calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
+                    <span className="text-zinc-600 ml-0.5">
+                      ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
+                        ? (calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
+                        : (1 / (1 - FEE_BPS)).toFixed(1)
+                      )}x)
+                    </span>
+                  </span>
+                  <span className="text-zinc-700">|</span>
+                  <span className="text-down">
+                    DOWN win: ${calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
+                    <span className="text-zinc-600 ml-0.5">
+                      ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
+                        ? (calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
+                        : (1 / (1 - FEE_BPS)).toFixed(1)
+                      )}x)
+                    </span>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Overlay: checking allowance */}
+            {isTradingOpen && stxAddress && checkingAllowance && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <div className="h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm">Checking approval status...</span>
+                </div>
+              </div>
+            )}
+
+            {/* Overlay: enable trading */}
+            {isTradingOpen && stxAddress && !checkingAllowance && tradingEnabled !== true && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm text-center">
+                  <p className="font-medium">Enable trading to place bets</p>
+                  <p className="text-xs text-amber-300/70 mt-1">
+                    One-time approval to allow the contract to use your USDCx
+                  </p>
+                </div>
+                <button
+                  onClick={enableTrading}
+                  disabled={trading}
+                  className="px-8 py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {trading ? 'Awaiting approval...' : 'Enable Trading'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Pool ratio bar */}
+          {(() => {
+            const total = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
+            const upPct = total > 0 ? ((pool?.totalUp ?? 0) / total) * 100 : 50
+            return (
+              <div className="space-y-1">
+                <div className="h-1.5 rounded-full overflow-hidden flex bg-zinc-800">
+                  <div className="bg-up/70 transition-all duration-500" style={{ width: `${upPct}%` }} />
+                  <div className="bg-down/70 transition-all duration-500" style={{ width: `${100 - upPct}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                  <span>{Math.round(upPct)}% UP</span>
+                  <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
+                  <span>{Math.round(100 - upPct)}% DOWN</span>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* UP/DOWN Buttons */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
@@ -534,125 +645,6 @@ export function MarketCardV4() {
                 {Math.round((pool?.priceDown ?? 0.5) * 100)}¢ · {((pool?.priceDown ?? 0.5) > 0 ? (1 / (pool?.priceDown ?? 0.5)) : 2).toFixed(1)}x
               </span>
             </button>
-          </div>
-
-          {/* Pool ratio bar */}
-          {(() => {
-            const total = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
-            const upPct = total > 0 ? ((pool?.totalUp ?? 0) / total) * 100 : 50
-            return (
-              <div className="space-y-1">
-                <div className="h-1.5 rounded-full overflow-hidden flex bg-zinc-800">
-                  <div className="bg-up/70 transition-all duration-500" style={{ width: `${upPct}%` }} />
-                  <div className="bg-down/70 transition-all duration-500" style={{ width: `${100 - upPct}%` }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
-                  <span>{Math.round(upPct)}% UP</span>
-                  <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
-                  <span>{Math.round(100 - upPct)}% DOWN</span>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Amount Input */}
-          <div>
-            {isTradingOpen ? (
-              stxAddress ? (
-                checkingAllowance ? (
-                  <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                      <div className="h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-sm">Checking approval status...</span>
-                    </div>
-                  </div>
-                ) : tradingEnabled !== true ? (
-                  <div className="space-y-3">
-                    <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
-                      <p className="font-medium">Enable trading to place bets</p>
-                      <p className="text-xs text-amber-300/70 mt-1">
-                        One-time approval to allow the contract to use your USDCx
-                      </p>
-                    </div>
-                    <button
-                      onClick={enableTrading}
-                      disabled={trading}
-                      className="w-full py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                    >
-                      {trading ? 'Awaiting approval...' : 'Enable Trading'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      {PRESETS.map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setAmount(String(d))}
-                          className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
-                            amount === String(d)
-                              ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
-                              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                          }`}
-                        >
-                          ${d}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        placeholder="Custom"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
-                      />
-                      <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
-                    </div>
-                    {/* Payout estimate */}
-                    {hasValidAmount && (
-                      <div className="flex gap-2 text-[11px] font-mono text-zinc-500 px-1">
-                        <span className="text-up">
-                          UP win: ${calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
-                          <span className="text-zinc-600 ml-0.5">
-                            ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
-                              ? (calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
-                              : (1 / (1 - FEE_BPS)).toFixed(1)
-                            )}x)
-                          </span>
-                        </span>
-                        <span className="text-zinc-700">|</span>
-                        <span className="text-down">
-                          DOWN win: ${calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
-                          <span className="text-zinc-600 ml-0.5">
-                            ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
-                              ? (calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
-                              : (1 / (1 - FEE_BPS)).toFixed(1)
-                            )}x)
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )
-              ) : (
-                <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                  <p className="text-center text-amber-400/90 text-sm">
-                    Connect wallet to trade
-                  </p>
-                </div>
-              )
-            ) : (
-              <div className="flex items-center justify-center min-h-[4.5rem] py-2">
-                <p className="text-center text-zinc-500 text-sm">
-                  Waiting for next round...
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </div>

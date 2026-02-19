@@ -3,6 +3,7 @@ import { MarketCardV4Wrapper } from '@/components/MarketCardV4Wrapper'
 import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrapper'
 import { MintTestTokensWrapper } from '@/components/MintTestTokensWrapper'
 import { ClaimButtonWrapper } from '@/components/ClaimButtonWrapper'
+import { WalletHistoryWrapper } from '@/components/WalletHistoryWrapper'
 
 export default function Home() {
   return (
@@ -52,6 +53,8 @@ export default function Home() {
             <li>• At the end of the minute: if price went up, UP pays $1 per share; if it went down, DOWN pays $1 per share.</li>
           </ul>
         </section>
+
+        <WalletHistoryWrapper />
 
         <footer className="mt-12 pt-8 border-t border-zinc-800/50">
           <div className="flex flex-col items-center gap-4 text-xs text-zinc-500">
