@@ -31,6 +31,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
   const openIndicatorRef = useRef<HTMLDivElement>(null)
   const openPriceRef = useRef<number | null>(null)
   const indicatorStateRef = useRef('')
+  const lastTrendColorRef = useRef('')
 
   // Animation state
   const displayedPriceRef = useRef<number | null>(null)
@@ -76,13 +77,13 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           mode: CrosshairMode.Normal,
           vertLine: {
             width: 1,
-            color: 'rgba(247, 147, 26, 0.2)',
+            color: 'rgba(255, 255, 255, 0.15)',
             style: LineStyle.Dashed,
             labelBackgroundColor: '#27272a',
           },
           horzLine: {
             width: 1,
-            color: 'rgba(247, 147, 26, 0.2)',
+            color: 'rgba(255, 255, 255, 0.15)',
             style: LineStyle.Dashed,
             labelBackgroundColor: '#27272a',
           },
@@ -103,15 +104,15 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
       })
 
       const series = chart.addSeries(AreaSeries, {
-        lineColor: '#F7931A',
-        topColor: 'rgba(247, 147, 26, 0.15)',
-        bottomColor: 'rgba(247, 147, 26, 0)',
+        lineColor: '#22C55E',
+        topColor: 'rgba(34, 197, 94, 0.15)',
+        bottomColor: 'rgba(34, 197, 94, 0)',
         lineWidth: 2,
         lineType: LineType.Curved,
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: 5,
-        crosshairMarkerBackgroundColor: '#F7931A',
-        crosshairMarkerBorderColor: '#F7931A',
+        crosshairMarkerBackgroundColor: '#22C55E',
+        crosshairMarkerBorderColor: '#22C55E',
         lastPriceAnimation: LastPriceAnimationMode.Continuous,
         priceLineVisible: false,
         lastValueVisible: false,
@@ -126,7 +127,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
-        axisLabelColor: '#F7931A',
+        axisLabelColor: '#22C55E',
         axisLabelTextColor: '#000',
         title: '',
       })
@@ -215,6 +216,24 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
         const isAbove = displayedPriceRef.current !== null && op !== null && displayedPriceRef.current >= op
         const trendColor = isAbove ? '#22C55E' : '#EF4444'
         const trendColorLine = isAbove ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)'
+
+        // Dynamic line color: green above open, red below open
+        if (trendColor !== lastTrendColorRef.current && op !== null) {
+          lastTrendColorRef.current = trendColor
+          const topGradient = isAbove ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)'
+          const bottomGradient = isAbove ? 'rgba(34, 197, 94, 0)' : 'rgba(239, 68, 68, 0)'
+          series.applyOptions({
+            lineColor: trendColor,
+            topColor: topGradient,
+            bottomColor: bottomGradient,
+            crosshairMarkerBackgroundColor: trendColor,
+            crosshairMarkerBorderColor: trendColor,
+          })
+          if (currentPriceLineRef.current) {
+            currentPriceLineRef.current.applyOptions({ axisLabelColor: trendColor })
+          }
+        }
+
         const stateKey = `${indicatorPos}-${op}-${isAbove}`
         if (ind && stateKey !== indicatorStateRef.current) {
           indicatorStateRef.current = stateKey

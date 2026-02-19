@@ -55,13 +55,6 @@ interface PoolData {
   priceDown: number  // 0-1 implied probability
 }
 
-const FEE_BPS = 0.03 // 3% fee
-
-function calcPayout(amount: number, sidePool: number, totalPool: number): number {
-  if (sidePool + amount <= 0) return 0
-  return ((amount / (sidePool + amount)) * (totalPool + amount)) * (1 - FEE_BPS)
-}
-
 export function MarketCardV4() {
   const [round, setRound] = useState<RoundInfo | null>(null)
   const [amount, setAmount] = useState('')
@@ -440,16 +433,13 @@ export function MarketCardV4() {
   const isTradingOpen = round && now < round.tradingClosesAt
   const canTrade = isTradingOpen && stxAddress && !trading
 
-  const amountNum = parseFloat(amount)
-  const hasValidAmount = !isNaN(amountNum) && amountNum >= MIN_BET_USD
-
   // Delta entre preço atual e preço de abertura
   const priceDelta = currentPrice && openPriceRef.current
     ? currentPrice - openPriceRef.current
     : null
 
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 bg-grid-pattern overflow-hidden">
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 overflow-hidden">
       {/* Header */}
       <div className="px-3 sm:px-5 py-2.5 sm:py-3 border-b border-zinc-800 flex items-center gap-2 sm:gap-3">
         {/* Pair */}
@@ -549,20 +539,25 @@ export function MarketCardV4() {
               roundEndsAt={round.endsAt}
             />
           )}
-          {/* Recent rounds overlay */}
+          {/* Recent rounds overlay — opacity fades from oldest (left) to newest (right) */}
           {recentRounds.length > 0 && (
-            <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-900/70 backdrop-blur-sm border border-zinc-800/50">
-              {recentRounds.map((r) => (
-                <span
-                  key={r.id}
-                  className={`text-[10px] font-mono font-bold leading-none ${
-                    r.outcome === 'UP' ? 'text-up' : 'text-down'
-                  }`}
-                  title={`Round ${r.id}: ${r.outcome}`}
-                >
-                  {r.outcome === 'UP' ? '▲' : '▼'}
-                </span>
-              ))}
+            <div className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 z-10 flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded sm:rounded-md bg-zinc-900/70 backdrop-blur-sm border border-zinc-800/50">
+              {recentRounds.map((r, i) => {
+                const opacity = 0.3 + (0.7 * (i / Math.max(recentRounds.length - 1, 1)))
+                return (
+                  <span
+                    key={r.id}
+                    style={{ opacity }}
+                    className={`text-[8px] sm:text-[10px] font-mono font-bold leading-none ${
+                      r.outcome === 'UP' ? 'text-up' : 'text-down'
+                    }`}
+                    title={`${recentRounds.length - i} min ago · ${r.outcome}`}
+                  >
+                    {r.outcome === 'UP' ? '▲' : '▼'}
+                  </span>
+                )
+              })}
+              <span className="text-[7px] sm:text-[8px] text-zinc-500 leading-none ml-0.5">now</span>
             </div>
           )}
         </div>
@@ -576,14 +571,25 @@ export function MarketCardV4() {
                 ? 'opacity-30 pointer-events-none select-none'
                 : ''
             }`}>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider">Amount (USD)</p>
-              <div className="flex flex-wrap gap-2 mb-2">
+              <div className="flex items-center gap-1.5">
+                <div className="relative w-24 shrink-0">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="w-full font-mono pl-6 pr-2 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                  />
+                </div>
                 {PRESETS.map((d) => (
                   <button
                     key={d}
                     type="button"
                     onClick={() => setAmount(String(d))}
-                    className={`px-3 py-1.5 rounded-lg font-mono text-sm transition ${
+                    className={`px-4 py-2 rounded-lg font-mono text-sm transition ${
                       amount === String(d)
                         ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
                         : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
@@ -593,42 +599,6 @@ export function MarketCardV4() {
                   </button>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder="Custom"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="flex-1 font-mono px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
-                />
-                <span className="flex items-center px-2 text-zinc-500 text-sm">USD</span>
-              </div>
-              {/* Payout estimate */}
-              {hasValidAmount && (
-                <div className="flex gap-2 text-[11px] font-mono text-zinc-500 px-1">
-                  <span className="text-up">
-                    UP win: ${calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
-                    <span className="text-zinc-600 ml-0.5">
-                      ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
-                        ? (calcPayout(amountNum, pool?.totalUp ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
-                        : (1 / (1 - FEE_BPS)).toFixed(1)
-                      )}x)
-                    </span>
-                  </span>
-                  <span className="text-zinc-700">|</span>
-                  <span className="text-down">
-                    DOWN win: ${calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)).toFixed(2)}
-                    <span className="text-zinc-600 ml-0.5">
-                      ({((pool?.totalUp ?? 0) + (pool?.totalDown ?? 0) > 0
-                        ? (calcPayout(amountNum, pool?.totalDown ?? 0, (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)) / amountNum).toFixed(1)
-                        : (1 / (1 - FEE_BPS)).toFixed(1)
-                      )}x)
-                    </span>
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* Overlay: checking allowance */}

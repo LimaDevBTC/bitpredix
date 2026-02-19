@@ -7,36 +7,18 @@ import { WalletHistoryWrapper } from '@/components/WalletHistoryWrapper'
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-zinc-950 bg-grid-pattern">
+    <main className="min-h-screen bg-zinc-950">
       <div className="w-full max-w-2xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
         <header className="mb-6 sm:mb-8">
-          {/* Desktop: uma linha */}
-          <div className="hidden sm:flex sm:items-center sm:justify-between sm:gap-4">
-            <Link href="/" className="font-bold text-2xl tracking-tight shrink-0">
-              <span className="text-bitcoin">Bit</span>
-              <span className="text-zinc-100">predix</span>
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
+            <Link href="/" className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="Bitpredix" className="h-14 sm:h-16 lg:h-20 w-auto" style={{ clipPath: 'inset(10% 0)' }} />
             </Link>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <ClaimButtonWrapper />
               <MintTestTokensWrapper />
               <ConnectWalletButtonWrapper />
-            </div>
-          </div>
-
-          {/* Mobile: layout compacto */}
-          <div className="sm:hidden space-y-2">
-            <div className="flex items-center justify-between">
-              <Link href="/" className="font-bold text-xl tracking-tight">
-                <span className="text-bitcoin">Bit</span>
-                <span className="text-zinc-100">predix</span>
-              </Link>
-              <div className="flex items-center gap-2">
-                <MintTestTokensWrapper />
-                <ConnectWalletButtonWrapper />
-              </div>
-            </div>
-            <div className="flex items-center justify-end">
-              <ClaimButtonWrapper />
             </div>
           </div>
         </header>
@@ -59,9 +41,8 @@ export default function Home() {
         <footer className="mt-12 pt-8 border-t border-zinc-800/50">
           <div className="flex flex-col items-center gap-4 text-xs text-zinc-500">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-zinc-400">
-                <span className="text-bitcoin">Bit</span>predix
-              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="Bitpredix" className="h-4 w-auto opacity-50" />
               <span className="text-zinc-600">·</span>
               <span className="text-zinc-500">beta version 0.0.1</span>
             </div>

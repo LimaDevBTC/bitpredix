@@ -53,7 +53,7 @@ export function ClaimButton() {
   const [pendingRounds, setPendingRounds] = useState<PendingRound[]>([])
   const [totalClaimable, setTotalClaimable] = useState(0)
   const [claiming, setClaiming] = useState(false)
-  const [claimProgress, setClaimProgress] = useState<string | null>(null)
+  const [, setClaimProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -343,44 +343,43 @@ export function ClaimButton() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative group">
       <button
         onClick={handleClaim}
         disabled={claiming}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/20
-                   border border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/30
-                   hover:border-emerald-500/70 disabled:opacity-50 disabled:cursor-not-allowed
-                   transition-colors text-sm font-medium"
+        className="relative flex items-center justify-center w-8 h-8 rounded-lg
+                   text-up hover:bg-up/15
+                   disabled:opacity-50 disabled:cursor-not-allowed
+                   transition-colors"
         title={`Claim ${pendingRounds.length} pending round${pendingRounds.length > 1 ? 's' : ''}`}
       >
         {claiming ? (
-          <>
-            <div className="h-4 w-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-            <span className="hidden sm:inline">{claimProgress || 'Claiming...'}</span>
-            <span className="sm:hidden">...</span>
-          </>
+          <div className="h-4 w-4 border-2 border-up border-t-transparent rounded-full animate-spin" />
         ) : (
           <>
-            <span aria-hidden="true">🔔</span>
-            <span className="hidden sm:inline">CLAIM</span>
-            <span className="bg-emerald-500/30 px-1.5 py-0.5 rounded text-xs font-mono">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-up text-[10px] font-bold text-black leading-none">
               {pendingRounds.length}
             </span>
           </>
         )}
       </button>
 
-      {/* Tooltip com valor estimado */}
-      {!claiming && totalClaimable > 0 && (
-        <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 whitespace-nowrap
-                        text-xs text-emerald-400/80 bg-zinc-900/90 px-2 py-1 rounded
-                        border border-emerald-500/20 pointer-events-none">
-          ~{totalClaimable.toFixed(2)} USDCx at stake
+      {/* Tooltip on hover */}
+      {!claiming && (
+        <div className="absolute top-full mt-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap
+                        text-[11px] text-up/80 bg-zinc-900/95 px-2 py-1 rounded
+                        border border-zinc-700/50 pointer-events-none
+                        opacity-0 group-hover:opacity-100 transition-opacity">
+          {totalClaimable > 0 ? `~${totalClaimable.toFixed(2)} USDCx` : 'Claim'}
         </div>
       )}
 
       {error && (
-        <div className="absolute top-full mt-1 left-0 right-0 text-xs text-red-400
+        <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-red-400
                         bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
           {error}
         </div>
