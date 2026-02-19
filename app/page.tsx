@@ -30,7 +30,7 @@ export default function Home() {
           <h3 className="font-semibold text-zinc-300 mb-2">How it works</h3>
           <ul className="space-y-1.5">
             <li>• Each round lasts <strong className="text-zinc-300">1 minute</strong>.</li>
-            <li>• Trading closes <strong className="text-zinc-300">when the round ends</strong> (no early cutoff).</li>
+            <li>• Predictions close <strong className="text-zinc-300">when the round ends</strong> (no early cutoff).</li>
             <li>• Buy <strong className="text-up">UP</strong> if you think the price will rise, <strong className="text-down">DOWN</strong> if you think it will fall.</li>
             <li>• UP and DOWN prices are set by an AMM (LMSR).</li>
             <li>• At the end of the minute: if price went up, UP pays $1 per share; if it went down, DOWN pays $1 per share.</li>
@@ -53,7 +53,7 @@ export default function Home() {
               © 2026 Bitpredix. All rights reserved.
             </div>
             <div className="text-zinc-600/80 text-[10px] max-w-md text-center leading-relaxed">
-              This is a beta version. Trading is simulated. Not financial advice.
+              This is a beta version. Predictions are simulated. Not financial advice.
             </div>
           </div>
         </footer>

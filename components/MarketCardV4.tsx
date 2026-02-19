@@ -326,7 +326,7 @@ export function MarketCardV4() {
       return
     }
     if (v < MIN_BET_USD) {
-      setError(`Min. $${MIN_BET_USD} to bet`)
+      setError(`Min. $${MIN_BET_USD} to predict`)
       return
     }
     if (!round) {
@@ -334,7 +334,7 @@ export function MarketCardV4() {
       return
     }
     if (Date.now() >= round.tradingClosesAt) {
-      setError('Trading closed for this round')
+      setError('Predictions closed for this round')
       return
     }
     if (!stxAddress) {
@@ -342,7 +342,7 @@ export function MarketCardV4() {
       return
     }
     if (!tradingEnabled) {
-      setError('Enable trading first (click button below)')
+      setError('Enable predictions first (click button below)')
       return
     }
     setError(null)
@@ -565,7 +565,7 @@ export function MarketCardV4() {
               </div>
             ) : (
               <div className="w-full h-full px-4 rounded-lg bg-zinc-800/60 text-amber-400/90 text-sm border border-zinc-700/50 flex items-center justify-center">
-                Trading closed. Next round starting...
+                Predictions closed. Next round starting...
               </div>
             )}
           </div>
@@ -657,7 +657,7 @@ export function MarketCardV4() {
             {isTradingOpen && stxAddress && !checkingAllowance && tradingEnabled !== true && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
                 <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm text-center">
-                  <p className="font-medium">Enable trading to place bets</p>
+                  <p className="font-medium">Enable predictions to start</p>
                   <p className="text-xs text-amber-300/70 mt-1">
                     One-time approval to allow the contract to use your USDCx
                   </p>
@@ -667,7 +667,7 @@ export function MarketCardV4() {
                   disabled={trading}
                   className="px-8 py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  {trading ? 'Awaiting approval...' : 'Enable Trading'}
+                  {trading ? 'Awaiting approval...' : 'Enable Predictions'}
                 </button>
               </div>
             )}

@@ -29,7 +29,7 @@ export function OnboardingBanner() {
       aria-label="How to start"
     >
       <p>
-        <strong className="text-bitcoin">New?</strong> Choose <span className="text-up font-medium">UP</span> or <span className="text-down font-medium">DOWN</span>, enter the amount and click to trade. Rounds last 1 minute; trading closes when the round ends.
+        <strong className="text-bitcoin">New?</strong> Choose <span className="text-up font-medium">UP</span> or <span className="text-down font-medium">DOWN</span>, enter the amount and click to predict. Rounds last 1 minute; predictions close when the round ends.
       </p>
       <button
         onClick={dismiss}

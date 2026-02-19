@@ -121,7 +121,7 @@ export function RoundExplorer({ initialRoundId }: { initialRoundId?: number }) {
       if (!data.ok) throw new Error(data.error || 'Round not found')
 
       if (data.rounds.length === 0) {
-        setError(`Round ${roundId} not found. It may have had no bets.`)
+        setError(`Round ${roundId} not found. It may have had no predictions.`)
         setRounds([])
       } else {
         setRounds(data.rounds)

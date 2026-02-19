@@ -56,11 +56,11 @@ function getFunctionLabel(fn: string): string {
     'approve': 'Approve Contract',
     'transfer-from': 'Transfer',
     'transfer': 'Transfer',
-    'place-bet': 'Place Bet',
+    'place-bet': 'Prediction',
     'claim-round': 'Claim Round',
     'claim-round-side': 'Claim Round',
-    'get-bet': 'Get Bet',
-    'get-user-bets': 'Get User Bets',
+    'get-bet': 'Get Prediction',
+    'get-user-bets': 'Get User Predictions',
   }
   return labels[fn] || fn
 }
@@ -68,7 +68,7 @@ function getFunctionLabel(fn: string): string {
 function getFunctionIcon(fn: string): string {
   if (fn === 'mint') return 'M'
   if (fn === 'approve') return 'A'
-  if (fn.startsWith('place-bet')) return 'B'
+  if (fn.startsWith('place-bet')) return 'P'
   if (fn.startsWith('claim-round')) return 'C'
   if (fn.startsWith('transfer')) return 'T'
   return 'TX'

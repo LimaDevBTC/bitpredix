@@ -112,7 +112,7 @@ export function RecentRounds() {
       )}
 
       {!loading && rounds.length === 0 && !error && (
-        <p className="text-zinc-500 text-xs">No rounds found yet. Place a bet to start!</p>
+        <p className="text-zinc-500 text-xs">No rounds found yet. Make a prediction to start!</p>
       )}
 
       {rounds.length > 0 && (

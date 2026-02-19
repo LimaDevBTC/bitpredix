@@ -49,7 +49,7 @@ function HistoryContent() {
             </Link>
           </div>
           <p className="text-zinc-500 text-xs mt-2 sm:mt-3">
-            Complete transparency — every round, every bet, every outcome.
+            Complete transparency — every round, every prediction, every outcome.
           </p>
         </header>
 
