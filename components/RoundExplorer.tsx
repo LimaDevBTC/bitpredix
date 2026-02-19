@@ -1,0 +1,500 @@
+'use client'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+
+// ============================================================================
+// TYPES (mirrors lib/round-indexer.ts)
+// ============================================================================
+
+interface IndexedBet {
+  txId: string
+  user: string
+  side: 'UP' | 'DOWN'
+  amount: number
+  amountUsd: number
+  timestamp: number
+  status: string
+}
+
+interface IndexedRound {
+  roundId: number
+  startTimestamp: number
+  endTimestamp: number
+  totalUpUsd: number
+  totalDownUsd: number
+  totalPoolUsd: number
+  resolved: boolean
+  outcome: 'UP' | 'DOWN' | null
+  priceStart: number | null
+  priceEnd: number | null
+  bets: IndexedBet[]
+  participantCount: number
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+const PAGE_SIZE = 10
+
+function timeAgo(ts: number): string {
+  const now = Math.floor(Date.now() / 1000)
+  const diff = now - ts
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`
+  return new Date(ts * 1000).toLocaleDateString()
+}
+
+function formatRoundTime(ts: number): string {
+  return new Date(ts * 1000).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatUsd(v: number): string {
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatPrice(v: number): string {
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function shortenAddress(addr: string): string {
+  if (addr.length <= 12) return addr
+  return addr.slice(0, 8) + '...' + addr.slice(-4)
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+export function RoundExplorer({ initialRoundId }: { initialRoundId?: number }) {
+  const [rounds, setRounds] = useState<IndexedRound[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [expandedRoundId, setExpandedRoundId] = useState<number | null>(initialRoundId ?? null)
+  const [searchQuery, setSearchQuery] = useState(initialRoundId ? String(initialRoundId) : '')
+  const [searchActive, setSearchActive] = useState(!!initialRoundId)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch paginated rounds
+  const fetchRounds = useCallback(async (pageNum: number, append: boolean) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/round-history?page=${pageNum}&pageSize=${PAGE_SIZE}`)
+      if (!res.ok) throw new Error('Failed to fetch')
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.error || 'Unknown error')
+
+      setRounds((prev) => (append ? [...prev, ...data.rounds] : data.rounds))
+      setHasMore(data.hasMore)
+      setTotal(data.total)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Search by round ID
+  const searchRound = useCallback(async (query: string) => {
+    const roundId = parseInt(query.trim())
+    if (isNaN(roundId)) {
+      setError('Enter a valid round ID (number)')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/round-history?roundId=${roundId}`)
+      if (!res.ok) throw new Error('Round not found')
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.error || 'Round not found')
+
+      if (data.rounds.length === 0) {
+        setError(`Round ${roundId} not found. It may have had no bets.`)
+        setRounds([])
+      } else {
+        setRounds(data.rounds)
+        setExpandedRoundId(roundId)
+      }
+      setHasMore(false)
+      setTotal(data.rounds.length)
+      setSearchActive(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Not found')
+      setRounds([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery('')
+    setSearchActive(false)
+    setExpandedRoundId(null)
+    setPage(1)
+    fetchRounds(1, false)
+  }, [fetchRounds])
+
+  // Initial load
+  useEffect(() => {
+    if (initialRoundId) {
+      searchRound(String(initialRoundId))
+    } else {
+      fetchRounds(1, false)
+    }
+  }, [fetchRounds, searchRound, initialRoundId])
+
+  // Listen for new bets/claims
+  useEffect(() => {
+    const onUpdate = () => {
+      if (!searchActive) {
+        setTimeout(() => fetchRounds(1, false), 5000)
+      }
+    }
+    window.addEventListener('bitpredix:balance-changed', onUpdate)
+    return () => window.removeEventListener('bitpredix:balance-changed', onUpdate)
+  }, [fetchRounds, searchActive])
+
+  const loadMore = () => {
+    if (loading || !hasMore) return
+    const nextPage = page + 1
+    setPage(nextPage)
+    fetchRounds(nextPage, true)
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (searchQuery.trim()) {
+      searchRound(searchQuery)
+    }
+  }
+
+  const toggleExpand = (roundId: number) => {
+    setExpandedRoundId((prev) => (prev === roundId ? null : roundId))
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Search bar */}
+      <div className="flex items-center gap-2">
+        <form onSubmit={handleSearchSubmit} className="flex-1 flex gap-2">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by round ID..."
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
+          />
+          <button
+            type="submit"
+            disabled={loading || !searchQuery.trim()}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Search
+          </button>
+        </form>
+        {searchActive && (
+          <button
+            onClick={clearSearch}
+            className="px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Stats bar */}
+      <div className="flex items-center gap-4 text-xs text-zinc-500">
+        <span>{total} round{total !== 1 ? 's' : ''} indexed</span>
+        {searchActive && (
+          <span className="text-bitcoin">Showing search results</span>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="text-xs text-red-400/80 bg-red-500/5 rounded-lg px-3 py-2 border border-red-500/10">
+          {error}
+        </div>
+      )}
+
+      {/* Loading (initial) */}
+      {loading && rounds.length === 0 && !error && (
+        <div className="flex items-center gap-2 text-zinc-500 text-xs py-8 justify-center">
+          <div className="h-4 w-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
+          Indexing contract transactions...
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && rounds.length === 0 && !error && (
+        <div className="text-center py-8 text-zinc-500 text-sm">
+          No rounds found.
+        </div>
+      )}
+
+      {/* Round list */}
+      {rounds.length > 0 && (
+        <div className="space-y-2">
+          {rounds.map((round) => (
+            <RoundRow
+              key={round.roundId}
+              round={round}
+              expanded={expandedRoundId === round.roundId}
+              onToggle={() => toggleExpand(round.roundId)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Load more */}
+      {hasMore && !searchActive && (
+        <button
+          onClick={loadMore}
+          disabled={loading}
+          className="w-full py-3 text-sm text-zinc-500 hover:text-zinc-300 bg-zinc-900/50 border border-zinc-800 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-3 w-3 border border-zinc-500 border-t-transparent rounded-full animate-spin" />
+              Loading...
+            </span>
+          ) : (
+            'Load more rounds'
+          )}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
+// ROUND ROW (collapsible)
+// ============================================================================
+
+function RoundRow({
+  round,
+  expanded,
+  onToggle,
+}: {
+  round: IndexedRound
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const upPct = round.totalPoolUsd > 0
+    ? (round.totalUpUsd / round.totalPoolUsd) * 100
+    : 50
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden transition-colors hover:border-zinc-700/60">
+      {/* Header row (clickable) */}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-800/30"
+      >
+        {/* Expand indicator */}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className={`h-3 w-3 text-zinc-600 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+
+        {/* Outcome badge */}
+        <div
+          className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center text-xs font-bold ${
+            round.outcome === 'UP'
+              ? 'text-up bg-up/10 border-up/30'
+              : round.outcome === 'DOWN'
+                ? 'text-down bg-down/10 border-down/30'
+                : 'text-zinc-400 bg-zinc-400/10 border-zinc-400/30'
+          }`}
+        >
+          {round.outcome === 'UP' ? 'UP' : round.outcome === 'DOWN' ? 'DN' : '...'}
+        </div>
+
+        {/* Round info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-zinc-200 font-medium text-sm">
+              Round {round.roundId}
+            </span>
+            <span className="text-zinc-600 text-[10px]">
+              {formatRoundTime(round.startTimestamp)}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-0.5">
+            {/* Pool bar */}
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden flex bg-zinc-800 max-w-[120px]">
+              <div className="bg-up/70 transition-all" style={{ width: `${upPct}%` }} />
+              <div className="bg-down/70 transition-all" style={{ width: `${100 - upPct}%` }} />
+            </div>
+            <span className="text-zinc-500 text-[10px]">
+              ${formatUsd(round.totalPoolUsd)} pool
+            </span>
+            <span className="text-zinc-600 text-[10px]">
+              {round.participantCount} bettor{round.participantCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+
+        {/* Time ago */}
+        <div className="shrink-0 text-zinc-600 text-[10px]">
+          {round.startTimestamp > 0 ? timeAgo(round.startTimestamp) : ''}
+        </div>
+      </button>
+
+      {/* Expanded detail panel */}
+      {expanded && (
+        <div className="border-t border-zinc-800 px-4 py-3 space-y-3">
+          {/* Prices */}
+          {round.resolved && round.priceStart !== null && round.priceEnd !== null && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-zinc-500">Open:</span>
+              <span className="text-zinc-300 font-medium">${formatPrice(round.priceStart)}</span>
+              <span className="text-zinc-600">&rarr;</span>
+              <span className="text-zinc-500">Close:</span>
+              <span className={`font-medium ${
+                round.outcome === 'UP' ? 'text-up' : round.outcome === 'DOWN' ? 'text-down' : 'text-zinc-300'
+              }`}>
+                ${formatPrice(round.priceEnd)}
+              </span>
+              {round.priceEnd !== null && round.priceStart !== null && (
+                <span className={`text-[10px] ${
+                  round.priceEnd > round.priceStart ? 'text-up' : 'text-down'
+                }`}>
+                  ({round.priceEnd > round.priceStart ? '+' : ''}{((round.priceEnd - round.priceStart) / round.priceStart * 100).toFixed(3)}%)
+                </span>
+              )}
+            </div>
+          )}
+
+          {!round.resolved && (
+            <div className="text-xs text-zinc-500">
+              Round not yet resolved. Prices will appear after the first claim.
+            </div>
+          )}
+
+          {/* Pool breakdown */}
+          <div className="flex items-center gap-4 text-xs">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-up/70" />
+              <span className="text-zinc-400">UP:</span>
+              <span className="text-zinc-300 font-medium">${formatUsd(round.totalUpUsd)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-down/70" />
+              <span className="text-zinc-400">DOWN:</span>
+              <span className="text-zinc-300 font-medium">${formatUsd(round.totalDownUsd)}</span>
+            </div>
+            <div className="text-zinc-600">= ${formatUsd(round.totalPoolUsd)} total</div>
+          </div>
+
+          {/* Pool ratio bar (larger) */}
+          <div className="h-2 rounded-full overflow-hidden flex bg-zinc-800">
+            <div className="bg-up/70 transition-all" style={{ width: `${upPct}%` }} />
+            <div className="bg-down/70 transition-all" style={{ width: `${100 - upPct}%` }} />
+          </div>
+          <div className="flex justify-between text-[10px] text-zinc-600">
+            <span>{upPct.toFixed(0)}% UP</span>
+            <span>{(100 - upPct).toFixed(0)}% DOWN</span>
+          </div>
+
+          {/* Participants table */}
+          {round.bets.length > 0 && (
+            <div className="mt-2">
+              <div className="text-xs text-zinc-500 mb-2 font-medium">
+                Participants ({round.bets.length})
+              </div>
+              <div className="rounded-lg border border-zinc-800 overflow-hidden">
+                {/* Table header */}
+                <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-1.5 bg-zinc-800/50 text-[10px] text-zinc-500 font-medium uppercase tracking-wider">
+                  <span>Wallet</span>
+                  <span className="text-right">Side</span>
+                  <span className="text-right">Amount</span>
+                  <span className="text-right">Result</span>
+                </div>
+                {/* Rows */}
+                {round.bets
+                  .filter((b) => b.status === 'success')
+                  .sort((a, b) => b.amountUsd - a.amountUsd)
+                  .map((bet) => {
+                    const won = round.resolved && bet.side === round.outcome
+                    const lost = round.resolved && bet.side !== round.outcome
+
+                    return (
+                      <div
+                        key={bet.txId}
+                        className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 border-t border-zinc-800/50 text-xs hover:bg-zinc-800/20 transition-colors"
+                      >
+                        {/* Wallet */}
+                        <a
+                          href={`https://explorer.hiro.so/address/${bet.user}?chain=testnet`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-zinc-400 hover:text-zinc-200 transition-colors font-mono text-[11px] truncate"
+                          title={bet.user}
+                        >
+                          {shortenAddress(bet.user)}
+                        </a>
+
+                        {/* Side */}
+                        <span className={`text-right font-medium ${
+                          bet.side === 'UP' ? 'text-up' : 'text-down'
+                        }`}>
+                          {bet.side}
+                        </span>
+
+                        {/* Amount */}
+                        <span className="text-right text-zinc-300">
+                          ${formatUsd(bet.amountUsd)}
+                        </span>
+
+                        {/* Result */}
+                        <span className={`text-right font-medium ${
+                          won ? 'text-up' : lost ? 'text-down' : 'text-zinc-500'
+                        }`}>
+                          {won ? 'Won' : lost ? 'Lost' : 'Pending'}
+                        </span>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Explorer link */}
+          <div className="flex justify-end pt-1">
+            <a
+              href={`https://explorer.hiro.so/txid/${round.bets[0]?.txId}?chain=testnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors flex items-center gap-1"
+            >
+              View on Explorer
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -4,6 +4,7 @@ import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrap
 import { MintTestTokensWrapper } from '@/components/MintTestTokensWrapper'
 import { ClaimButtonWrapper } from '@/components/ClaimButtonWrapper'
 import { WalletHistoryWrapper } from '@/components/WalletHistoryWrapper'
+import { RecentRoundsWrapper } from '@/components/RecentRoundsWrapper'
 
 export default function Home() {
   return (
@@ -37,6 +38,8 @@ export default function Home() {
         </section>
 
         <WalletHistoryWrapper />
+
+        <RecentRoundsWrapper />
 
         <footer className="mt-12 pt-8 border-t border-zinc-800/50">
           <div className="flex flex-col items-center gap-4 text-xs text-zinc-500">
