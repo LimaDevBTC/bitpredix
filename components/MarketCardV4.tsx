@@ -71,6 +71,7 @@ export function MarketCardV4() {
   const [stxAddress, setStxAddress] = useState<string | null>(null)
   const [btcPriceHistory, setBtcPriceHistory] = useState<BtcPricePoint[]>([])
   const [pool, setPool] = useState<PoolData | null>(null)
+  const [recentRounds, setRecentRounds] = useState<{ id: string; outcome: 'UP' | 'DOWN' }[]>([])
 
   const lastRoundIdRef = useRef<number | null>(null)
   const openPriceRef = useRef<number | null>(null)
@@ -139,6 +140,45 @@ export function MarketCardV4() {
     fetchPool()
     const interval = setInterval(fetchPool, 8000)
     return () => { cancelled = true; clearInterval(interval) }
+  }, [round?.id])
+
+  // Fetch recent round outcomes from Pyth 1-min candle data
+  // Re-runs on round change + delayed retry (candle may not be available instantly)
+  useEffect(() => {
+    let cancelled = false
+    const fetchHistory = async () => {
+      try {
+        const currentRoundId = Math.floor(Date.now() / 60000)
+        const from = (currentRoundId - 6) * 60
+        const to = currentRoundId * 60
+        const res = await fetch(`/api/pyth-price?from=${from}&to=${to}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (cancelled || !data.ok) return
+
+        const timestamps: number[] = data.timestamps || []
+        const opens: number[] = data.open || []
+        const closes: number[] = data.close || []
+
+        if (timestamps.length === 0) return
+
+        const results: { id: string; outcome: 'UP' | 'DOWN' }[] = []
+        for (let i = 0; i < timestamps.length; i++) {
+          const roundId = Math.floor(timestamps[i] / 60)
+          if (roundId >= currentRoundId) continue
+          results.push({
+            id: String(roundId),
+            outcome: closes[i] > opens[i] ? 'UP' : 'DOWN',
+          })
+        }
+
+        setRecentRounds(results.slice(-5))
+      } catch { /* ignore */ }
+    }
+    fetchHistory()
+    // Retry after 3s — Pyth candle for the just-ended round may not be ready immediately
+    const retryId = setTimeout(fetchHistory, 3000)
+    return () => { cancelled = true; clearTimeout(retryId) }
   }, [round?.id])
 
   // Estado de allowance (verifica no blockchain via API)
@@ -499,7 +539,7 @@ export function MarketCardV4() {
         </div>
 
         {/* BTC Price Chart (full width, Polymarket style) */}
-        <div className="mb-3 sm:mb-4 rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+        <div className="relative mb-3 sm:mb-4 rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
           {round && (
             <BtcPriceChart
               data={btcPriceHistory}
@@ -507,6 +547,22 @@ export function MarketCardV4() {
               roundStartAt={round.startAt}
               roundEndsAt={round.endsAt}
             />
+          )}
+          {/* Recent rounds overlay */}
+          {recentRounds.length > 0 && (
+            <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-900/70 backdrop-blur-sm border border-zinc-800/50">
+              {recentRounds.map((r) => (
+                <span
+                  key={r.id}
+                  className={`text-[10px] font-mono font-bold leading-none ${
+                    r.outcome === 'UP' ? 'text-up' : 'text-down'
+                  }`}
+                  title={`Round ${r.id}: ${r.outcome}`}
+                >
+                  {r.outcome === 'UP' ? '▲' : '▼'}
+                </span>
+              ))}
+            </div>
           )}
         </div>
 
