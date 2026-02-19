@@ -45,7 +45,7 @@ export default function Home() {
           <div className="flex flex-col items-center gap-4 text-xs text-zinc-500">
             <div className="flex items-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.png" alt="Bitpredix" className="h-4 w-auto opacity-50" />
+              <img src="/logo.png" alt="Bitpredix" className="h-8 w-auto opacity-50" />
               <span className="text-zinc-600">·</span>
               <span className="text-zinc-500">beta version 0.0.1</span>
             </div>
