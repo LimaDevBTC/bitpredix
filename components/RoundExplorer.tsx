@@ -349,7 +349,7 @@ function RoundRow({
               ${formatUsd(round.totalPoolUsd)} pool
             </span>
             <span className="text-zinc-600 text-[10px]">
-              {round.participantCount} bettor{round.participantCount !== 1 ? 's' : ''}
+              {round.participantCount} predictor{round.participantCount !== 1 ? 's' : ''}
             </span>
           </div>
         </div>

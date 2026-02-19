@@ -148,7 +148,7 @@ export function RecentRounds() {
                       Round {round.roundId}
                     </span>
                     <span className="text-zinc-600 text-[10px]">
-                      {round.participantCount} bettor{round.participantCount !== 1 ? 's' : ''}
+                      {round.participantCount} predictor{round.participantCount !== 1 ? 's' : ''}
                     </span>
                   </div>
                   {/* Pool bar */}
