@@ -13,7 +13,8 @@
     "cron-oracle": "node scripts/cron-oracle.mjs",
     "oracle-daemon": "node scripts/oracle-daemon.mjs",
     "oracle-check-address": "node scripts/oracle-check-address.mjs",
-    "check-round": "node scripts/check-round.mjs"
+    "check-round": "node scripts/check-round.mjs",
+    "resolver-daemon": "node scripts/resolver-daemon.mjs"
   },
   "dependencies": {
     "@stacks/connect": "^8.2.4",

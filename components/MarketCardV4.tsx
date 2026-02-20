@@ -14,14 +14,14 @@ const BtcPriceChart = dynamic(() => import('./BtcPriceChart'), {
 })
 import { usePythPrice } from '@/lib/pyth'
 
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
+const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv1'
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_APPROVE_AMOUNT = BigInt('1000000000000') // 1 million USD (6 decimals)
 
 type Side = 'UP' | 'DOWN'
 
 const ROUND_DURATION_MS = 60 * 1000  // 60 segundos
-const TRADING_WINDOW_MS = 48 * 1000  // Trading fecha 12s antes do fim
+const TRADING_WINDOW_MS = 55 * 1000  // Trading fecha 5s antes do fim do round
 const MIN_BET_USD = 1
 
 interface RoundInfo {
@@ -180,6 +180,7 @@ export function MarketCardV4() {
   // Estado de allowance (verifica no blockchain via API)
   const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(null)
   const [checkingAllowance, setCheckingAllowance] = useState(false)
+  const [tokenBalance, setTokenBalance] = useState(0) // USD (already divided by 1e6)
 
   // Verifica allowance no blockchain
   const checkAllowance = useCallback(async (addr: string) => {
@@ -195,6 +196,12 @@ export function MarketCardV4() {
     try {
       const response = await fetch(`/api/allowance-status?address=${encodeURIComponent(addr)}`)
       const data = await response.json()
+
+      // Fetch balance in parallel (non-blocking)
+      fetch(`/api/mint-status?address=${encodeURIComponent(addr)}`)
+        .then(r => r.json())
+        .then(d => { if (d.ok && d.balance) setTokenBalance(Number(d.balance) / 1e6) })
+        .catch(() => {})
 
       console.log('[MarketCardV4] Allowance check:', data)
 
@@ -251,6 +258,19 @@ export function MarketCardV4() {
     const interval = setInterval(refreshAddress, 2500)
     return () => clearInterval(interval)
   }, [stxAddress, checkAllowance])
+
+  // Atualiza saldo do token após apostas/claims
+  useEffect(() => {
+    const refreshBalance = () => {
+      if (!stxAddress) return
+      fetch(`/api/mint-status?address=${encodeURIComponent(stxAddress)}`)
+        .then(r => r.json())
+        .then(d => { if (d.ok && d.balance) setTokenBalance(Number(d.balance) / 1e6) })
+        .catch(() => {})
+    }
+    window.addEventListener('bitpredix:balance-changed', refreshBalance)
+    return () => window.removeEventListener('bitpredix:balance-changed', refreshBalance)
+  }, [stxAddress])
 
   // Adiciona pontos ao historico de precos BTC (mantém últimos 5 min)
   useEffect(() => {
@@ -441,7 +461,7 @@ export function MarketCardV4() {
     }
   }
 
-  const PRESETS = [5, 10, 50, 100] as const
+  const PRESETS = [1, 5, 10, 50, 100] as const
 
   const now = Date.now()
   const isTradingOpen = round && now < round.tradingClosesAt
@@ -605,117 +625,146 @@ export function MarketCardV4() {
         </div>
 
         {/* Trading Controls */}
-        <div className="space-y-3 sm:space-y-4">
-          {/* Amount Input — always rendered, dimmed when not interactive */}
-          <div className="relative">
-            <div className={`space-y-2 transition-opacity duration-300 ${
-              (!isTradingOpen || !stxAddress || checkingAllowance || tradingEnabled !== true)
-                ? 'opacity-30 pointer-events-none select-none'
-                : ''
-            }`}>
-              <div className="flex items-center gap-1">
-                <div className="relative w-[72px] sm:w-20 shrink-0">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs pointer-events-none">$</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="0"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full font-mono pl-5 pr-1 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-xs sm:text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
-                  />
+        {(() => {
+          const needsApproval = stxAddress && !checkingAllowance && tradingEnabled !== true
+          const isChecking = stxAddress && checkingAllowance
+          const showOverlay = needsApproval || isChecking
+          return (
+            <div className="relative">
+              {/* Trading controls — always rendered to lock the height; invisible when overlay active */}
+              <div className={showOverlay ? 'invisible' : ''}>
+                <div className="space-y-3 sm:space-y-4">
+                  <div className="flex items-center gap-1">
+                    <div className="relative w-[72px] sm:w-20 shrink-0">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs pointer-events-none">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="0"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="w-full font-mono pl-5 pr-1 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-xs sm:text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                      />
+                    </div>
+                    {PRESETS.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setAmount(String(d))}
+                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition ${
+                          amount === String(d)
+                            ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
+                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                        }`}
+                      >
+                        ${d}
+                      </button>
+                    ))}
+                    {tokenBalance > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setAmount(String(Math.floor(tokenBalance)))}
+                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition ${
+                          amount === String(Math.floor(tokenBalance))
+                            ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
+                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                        }`}
+                      >
+                        Max
+                      </button>
+                    )}
+                  </div>
+
+                  {(() => {
+                    const total = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
+                    const upPct = total > 0 ? ((pool?.totalUp ?? 0) / total) * 100 : 50
+                    return (
+                      <div className="space-y-1">
+                        <div className="h-1.5 rounded-full overflow-hidden flex bg-zinc-800">
+                          <div className="bg-up/70 transition-all duration-500" style={{ width: `${upPct}%` }} />
+                          <div className="bg-down/70 transition-all duration-500" style={{ width: `${100 - upPct}%` }} />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                          <span>{Math.round(upPct)}% UP</span>
+                          <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
+                          <span>{Math.round(100 - upPct)}% DOWN</span>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    <button
+                      onClick={() => requestBet('UP')}
+                      disabled={!canTrade}
+                      className="flex flex-col items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">UP</span>
+                      <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
+                        {Math.round((pool?.priceUp ?? 0.5) * 100)}¢ · {((pool?.priceUp ?? 0.5) > 0 ? (1 / (pool?.priceUp ?? 0.5)) : 2).toFixed(1)}x
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => requestBet('DOWN')}
+                      disabled={!canTrade}
+                      className="flex flex-col items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">DOWN</span>
+                      <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
+                        {Math.round((pool?.priceDown ?? 0.5) * 100)}¢ · {((pool?.priceDown ?? 0.5) > 0 ? (1 / (pool?.priceDown ?? 0.5)) : 2).toFixed(1)}x
+                      </span>
+                    </button>
+                  </div>
                 </div>
-                {PRESETS.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setAmount(String(d))}
-                    className={`px-2 sm:px-3 py-2 rounded-lg font-mono text-xs transition ${
-                      amount === String(d)
-                        ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                    }`}
-                  >
-                    ${d}
-                  </button>
-                ))}
               </div>
+
+              {/* Approval overlay — positioned on top of the invisible controls */}
+              {showOverlay && (
+                <div className="absolute inset-0 flex flex-col justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-bitcoin/10 border border-bitcoin/20 flex items-center justify-center shrink-0">
+                      <svg className="w-3.5 h-3.5 text-bitcoin" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-medium text-zinc-200 leading-tight">Approve TUSDC to predict</p>
+                      <p className="text-[11px] text-zinc-500 leading-tight mt-0.5">One-time contract approval</p>
+                    </div>
+                  </div>
+
+                  {needsApproval ? (
+                    <button
+                      onClick={enableTrading}
+                      disabled={trading}
+                      className="w-full flex flex-col items-center justify-center rounded-xl bg-bitcoin/20 border border-bitcoin/40 text-bitcoin py-2.5 sm:py-3 hover:bg-bitcoin/30 hover:border-bitcoin/60 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                      {trading ? (
+                        <span className="flex items-center gap-2 text-sm font-semibold">
+                          <span className="h-4 w-4 border-2 border-bitcoin/40 border-t-bitcoin rounded-full animate-spin" />
+                          Awaiting wallet...
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">Approve & Start</span>
+                          <span className="text-[11px] sm:text-xs font-mono opacity-70 leading-tight">enable predictions</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="w-full flex flex-col items-center justify-center rounded-xl border border-zinc-800 py-2.5 sm:py-3">
+                      <span className="flex items-center gap-2 text-sm text-zinc-500">
+                        <span className="h-4 w-4 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+                        Checking approval...
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-
-            {/* Overlay: checking allowance */}
-            {isTradingOpen && stxAddress && checkingAllowance && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <div className="h-4 w-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-sm">Checking approval status...</span>
-                </div>
-              </div>
-            )}
-
-            {/* Overlay: enable trading */}
-            {isTradingOpen && stxAddress && !checkingAllowance && tradingEnabled !== true && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                <div className="px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm text-center">
-                  <p className="font-medium">Enable predictions to start</p>
-                  <p className="text-xs text-amber-300/70 mt-1">
-                    One-time approval to allow the contract to use your USDCx
-                  </p>
-                </div>
-                <button
-                  onClick={enableTrading}
-                  disabled={trading}
-                  className="px-8 py-3 rounded-xl bg-bitcoin/20 border border-bitcoin/50 text-bitcoin font-semibold hover:bg-bitcoin/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  {trading ? 'Awaiting approval...' : 'Enable Predictions'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Pool ratio bar */}
-          {(() => {
-            const total = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
-            const upPct = total > 0 ? ((pool?.totalUp ?? 0) / total) * 100 : 50
-            return (
-              <div className="space-y-1">
-                <div className="h-1.5 rounded-full overflow-hidden flex bg-zinc-800">
-                  <div className="bg-up/70 transition-all duration-500" style={{ width: `${upPct}%` }} />
-                  <div className="bg-down/70 transition-all duration-500" style={{ width: `${100 - upPct}%` }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
-                  <span>{Math.round(upPct)}% UP</span>
-                  <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
-                  <span>{Math.round(100 - upPct)}% DOWN</span>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* UP/DOWN Buttons */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => requestBet('UP')}
-              disabled={!canTrade}
-              className="flex flex-col items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">UP</span>
-              <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
-                {Math.round((pool?.priceUp ?? 0.5) * 100)}¢ · {((pool?.priceUp ?? 0.5) > 0 ? (1 / (pool?.priceUp ?? 0.5)) : 2).toFixed(1)}x
-              </span>
-            </button>
-            <button
-              onClick={() => requestBet('DOWN')}
-              disabled={!canTrade}
-              className="flex flex-col items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">DOWN</span>
-              <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
-                {Math.round((pool?.priceDown ?? 0.5) * 100)}¢ · {((pool?.priceDown ?? 0.5) > 0 ? (1 / (pool?.priceDown ?? 0.5)) : 2).toFixed(1)}x
-              </span>
-            </button>
-          </div>
-        </div>
+          )
+        })()}
       </div>
     </div>
   )

@@ -119,6 +119,7 @@ export function ConnectWalletButton() {
     disconnect()
     setStxAddress(null)
     setError(null)
+    window.dispatchEvent(new CustomEvent('bitpredix:wallet-disconnected'))
   }
 
   if (stxAddress) {

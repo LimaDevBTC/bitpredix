@@ -81,7 +81,7 @@ export async function GET() {
           id: `round-${roundId}`,
           startAt,
           endsAt: (roundId + 1) * 60 * 1000,
-          tradingClosesAt: startAt + 48 * 1000,
+          tradingClosesAt: startAt + 55 * 1000,
           priceAtStart: u('price-start') / 100,
           priceAtEnd: u('price-end') > 0 ? u('price-end') / 100 : undefined,
           outcome: resolved ? (u('price-end') > u('price-start') ? 'UP' : 'DOWN') : undefined,

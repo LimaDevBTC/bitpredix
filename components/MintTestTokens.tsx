@@ -138,6 +138,18 @@ export function MintTestTokens() {
     return () => window.removeEventListener('bitpredix:balance-changed', handleBalanceChanged)
   }, [refresh])
 
+  // Limpa estado imediatamente ao desconectar a carteira
+  useEffect(() => {
+    const handleDisconnect = () => {
+      setStx(null)
+      setBalance('0')
+      setCanMint(null)
+      setVerified(false)
+    }
+    window.addEventListener('bitpredix:wallet-disconnected', handleDisconnect)
+    return () => window.removeEventListener('bitpredix:wallet-disconnected', handleDisconnect)
+  }, [])
+
   if (!CONTRACT_ID) return null
   if (!isConnected() || !stx) return null
 

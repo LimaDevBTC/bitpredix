@@ -91,7 +91,7 @@ const MIN_SCAN_INTERVAL_MS = 30_000
 const FETCH_TIMEOUT = 12_000
 
 function getContractAddress(): string {
-  return process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.bitpredix-v5`
+  return process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv1`
 }
 
 // ============================================================================

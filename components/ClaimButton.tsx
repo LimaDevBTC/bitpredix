@@ -8,7 +8,7 @@ import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
 import { uintCV, standardPrincipalCV, stringAsciiCV, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
 
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.bitpredix-v5'
+const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv1'
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_CLAIMS_PER_TX = 10
 const STACKS_API_BASE = 'https://api.testnet.hiro.so'
