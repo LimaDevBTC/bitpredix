@@ -466,6 +466,7 @@ export function MarketCardV4() {
   const now = Date.now()
   const isTradingOpen = round && now < round.tradingClosesAt
   const canTrade = isTradingOpen && stxAddress && !trading
+  const inputsEnabled = stxAddress && tradingEnabled && isTradingOpen && !trading
 
   // Delta entre preço atual e preço de abertura
   const priceDelta = currentPrice && openPriceRef.current
@@ -644,15 +645,17 @@ export function MarketCardV4() {
                         placeholder="0"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
-                        className="w-full font-mono pl-5 pr-1 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-xs sm:text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin"
+                        disabled={!inputsEnabled}
+                        className="w-full font-mono pl-5 pr-1 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-xs sm:text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin disabled:opacity-40 disabled:cursor-not-allowed"
                       />
                     </div>
                     {PRESETS.map((d) => (
                       <button
                         key={d}
                         type="button"
+                        disabled={!inputsEnabled}
                         onClick={() => setAmount(String(d))}
-                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition ${
+                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition disabled:opacity-40 disabled:cursor-not-allowed ${
                           amount === String(d)
                             ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
                             : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
@@ -664,8 +667,9 @@ export function MarketCardV4() {
                     {tokenBalance > 0 && (
                       <button
                         type="button"
+                        disabled={!inputsEnabled}
                         onClick={() => setAmount(String(Math.floor(tokenBalance)))}
-                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition ${
+                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition disabled:opacity-40 disabled:cursor-not-allowed ${
                           amount === String(Math.floor(tokenBalance))
                             ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
                             : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
