@@ -21,7 +21,7 @@ function HistoryContent() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/logo.png"
-                  alt="Bitpredix"
+                  alt="Predix"
                   className="h-10 sm:h-12 w-auto"
                   style={{ clipPath: 'inset(10% 0)' }}
                 />

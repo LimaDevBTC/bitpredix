@@ -10,7 +10,7 @@
 const FETCH_TIMEOUT_MS = 6_000
 const DEFAULT_HEADERS: HeadersInit = {
   'Accept': 'application/json',
-  'User-Agent': 'Bitpredix/1.0 (https://github.com/LimaDevBTC/bitpredix)',
+  'User-Agent': 'Predix/1.0 (https://www.predix.live)',
 }
 
 const SOURCES: { name: string; url: string; parse: (data: unknown) => number }[] = [
