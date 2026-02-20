@@ -392,18 +392,7 @@ async function processRound(
 export async function GET(req: Request) {
   // Authenticate: Vercel Cron sends Authorization header with CRON_SECRET
   const authHeader = req.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  // Debug — check Vercel Runtime Logs
-  console.log('[cron/resolve] AUTH DEBUG:', {
-    hasAuthHeader: !!authHeader,
-    authHeaderPrefix: authHeader ? authHeader.slice(0, 12) + '...' : null,
-    hasCronSecret: !!cronSecret,
-    cronSecretLen: cronSecret?.length ?? 0,
-    match: authHeader === `Bearer ${cronSecret}`,
-  })
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
