@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import {
   makeContractCall,
-
+  PostConditionMode,
   uintCV,
   stringAsciiCV,
   standardPrincipalCV,
@@ -372,7 +372,7 @@ async function processRound(
           ],
           senderKey: privateKey,
           network: STACKS_TESTNET,
-  
+          postConditionMode: PostConditionMode.Allow,
           fee: TX_FEE,
           nonce: BigInt(currentNonce),
         })
