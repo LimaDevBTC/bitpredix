@@ -14,7 +14,7 @@ import { STACKS_TESTNET } from '@stacks/network'
 import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -110,7 +110,7 @@ async function broadcastTx(tx: { serialize: () => string; txid: () => string }):
   return data.txid || tx.txid()
 }
 
-async function waitForMempool(txId: string, maxWaitMs = 15000): Promise<string> {
+async function waitForMempool(txId: string, maxWaitMs = 5000): Promise<string> {
   const start = Date.now()
   while (Date.now() - start < maxWaitMs) {
     try {
@@ -119,9 +119,9 @@ async function waitForMempool(txId: string, maxWaitMs = 15000): Promise<string> 
         return (data as { tx_status: string }).tx_status
       }
     } catch { /* not found yet */ }
-    await sleep(2000)
+    await sleep(1500)
   }
-  return 'unknown'
+  return 'pending'
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +392,18 @@ async function processRound(
 export async function GET(req: Request) {
   // Authenticate: Vercel Cron sends Authorization header with CRON_SECRET
   const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const cronSecret = process.env.CRON_SECRET
+
+  // Debug — check Vercel Runtime Logs
+  console.log('[cron/resolve] AUTH DEBUG:', {
+    hasAuthHeader: !!authHeader,
+    authHeaderPrefix: authHeader ? authHeader.slice(0, 12) + '...' : null,
+    hasCronSecret: !!cronSecret,
+    cronSecretLen: cronSecret?.length ?? 0,
+    match: authHeader === `Bearer ${cronSecret}`,
+  })
+
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -404,17 +415,17 @@ export async function GET(req: Request) {
     const { privateKey, address } = await initWallet()
     log.push({ action: 'init', detail: `Wallet: ${address.slice(0, 8)}...` })
 
-    // Determine round to process (the one that just ended)
+    // Scan recent rounds (last SCAN_BACK rounds) to catch any missed ones
+    const SCAN_BACK = 5
     const currentRoundId = Math.floor(Date.now() / 60000)
-    const previousRoundId = currentRoundId - 1
+    let nonce = await getNonce(address)
 
-    log.push({ action: 'target', detail: `Processing round ${previousRoundId}` })
+    log.push({ action: 'scan', detail: `Rounds ${currentRoundId - SCAN_BACK} to ${currentRoundId - 1}` })
 
-    // Get nonce
-    const nonce = await getNonce(address)
-
-    // Process the round
-    await processRound(previousRoundId, nonce, privateKey, log)
+    for (let i = SCAN_BACK; i >= 1; i--) {
+      const roundId = currentRoundId - i
+      nonce = await processRound(roundId, nonce, privateKey, log)
+    }
 
   } catch (e) {
     log.push({ action: 'fatal', detail: 'Unhandled error', error: e instanceof Error ? e.message : String(e) })
