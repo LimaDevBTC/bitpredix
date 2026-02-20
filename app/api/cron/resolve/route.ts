@@ -142,8 +142,9 @@ async function readRound(roundId: number): Promise<RoundData | null> {
     if (!data.data) return null
     const cv = hexToCV(data.data as string)
     const json = cvToJSON(cv)
+    // cvToJSON wraps map entries as optional(tuple(...)) — need .value.value to unwrap both
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const v = (json as any).value
+    const v = (json as any).value?.value
     if (v === null || v === undefined) return null
     return {
       totalUp: Number(v['total-up']?.value ?? 0),
@@ -208,7 +209,9 @@ async function readUserBets(roundId: number, bettor: string): Promise<{ up: BetD
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parseSide = (side: any): BetData | null => {
       if (!side || side.value === null || side.value === undefined) return null
-      const sv = side.value
+      // Optional(tuple) needs .value.value to unwrap both layers
+      const sv = side.value?.value ?? side.value
+      if (!sv) return null
       return {
         amount: Number(sv.amount?.value ?? 0),
         claimed: sv.claimed?.value === true || String(sv.claimed?.value) === 'true',
