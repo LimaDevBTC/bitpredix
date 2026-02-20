@@ -415,7 +415,7 @@ export async function GET(req: Request) {
     }
 
     // Scan recent rounds (last SCAN_BACK rounds) to catch any missed ones
-    const SCAN_BACK = 10
+    const SCAN_BACK = 50
     const currentRoundId = Math.floor(Date.now() / 60000)
     let nonce = await getNonce(address)
 
