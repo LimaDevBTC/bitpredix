@@ -310,7 +310,8 @@ async function processRound(
     const outcome = priceEnd > priceStart ? 'UP' : 'DOWN'
     log.push({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome}` })
 
-    // 3. Resolve round
+    // 3. Try resolve-round (may fail on-chain if Stacks block time is behind)
+    //    Even if this fails, claim-on-behalf has a safety net that resolves without block time check
     try {
       const tx = await makeContractCall({
         contractAddress: CONTRACT_ADDRESS,
@@ -328,8 +329,8 @@ async function processRound(
       await waitForMempool(txId)
       currentNonce++
     } catch (e) {
-      log.push({ action: 'error', detail: `resolve-round failed for ${roundId}`, error: String(e) })
-      return currentNonce
+      // Don't return early — continue to claims which can resolve the round via safety net
+      log.push({ action: 'warn', detail: `resolve-round broadcast failed for ${roundId}, will try claim-on-behalf`, error: String(e) })
     }
   } else {
     priceStart = round.priceStart
@@ -402,10 +403,16 @@ export async function GET(req: Request) {
   try {
     // Init wallet
     const { privateKey, address } = await initWallet()
-    log.push({ action: 'init', detail: `Wallet: ${address.slice(0, 8)}...` })
+    log.push({ action: 'init', detail: `Wallet: ${address}` })
+
+    // Verify wallet matches contract DEPLOYER
+    if (address !== CONTRACT_ADDRESS) {
+      log.push({ action: 'fatal', detail: `Wallet ${address} does NOT match DEPLOYER ${CONTRACT_ADDRESS}` })
+      return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
+    }
 
     // Scan recent rounds (last SCAN_BACK rounds) to catch any missed ones
-    const SCAN_BACK = 5
+    const SCAN_BACK = 10
     const currentRoundId = Math.floor(Date.now() / 60000)
     let nonce = await getNonce(address)
 
