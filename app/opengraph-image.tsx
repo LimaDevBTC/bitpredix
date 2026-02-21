@@ -5,7 +5,13 @@ export const alt = 'Predix — Predict Bitcoin. Every Minute.'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
-export default function OGImage() {
+const logoSrc = fetch(new URL('../public/logo.png', import.meta.url)).then(
+  (res) => res.arrayBuffer()
+)
+
+export default async function OGImage() {
+  const logoData = await logoSrc
+
   return new ImageResponse(
     (
       <div
@@ -62,61 +68,14 @@ export default function OGImage() {
           }}
         />
 
-        {/* Logo mark: UP and DOWN triangles */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '24px',
-            marginBottom: '16px',
-          }}
-        >
-          {/* Brand name */}
-          <div
-            style={{
-              fontSize: '96px',
-              fontWeight: 800,
-              color: '#f4f4f5',
-              letterSpacing: '-2px',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            PREDI
-            {/* X with triangles */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                marginLeft: '-4px',
-                gap: '4px',
-              }}
-            >
-              <div
-                style={{
-                  width: 0,
-                  height: 0,
-                  borderLeft: '28px solid transparent',
-                  borderRight: '28px solid transparent',
-                  borderBottom: '32px solid #22C55E',
-                  display: 'flex',
-                  transform: 'rotate(180deg)',
-                }}
-              />
-              <div
-                style={{
-                  width: 0,
-                  height: 0,
-                  borderLeft: '28px solid transparent',
-                  borderRight: '28px solid transparent',
-                  borderBottom: '32px solid #EF4444',
-                  display: 'flex',
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        {/* Official logo */}
+        <img
+          // @ts-expect-error -- Satori accepts ArrayBuffer as img src
+          src={logoData}
+          width={580}
+          height={326}
+          style={{ marginBottom: '16px' }}
+        />
 
         {/* Tagline */}
         <div
