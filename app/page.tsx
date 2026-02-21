@@ -2,7 +2,6 @@ import Link from 'next/link'
 import { MarketCardV4Wrapper } from '@/components/MarketCardV4Wrapper'
 import { ConnectWalletButtonWrapper } from '@/components/ConnectWalletButtonWrapper'
 import { MintTestTokensWrapper } from '@/components/MintTestTokensWrapper'
-import { ClaimButtonWrapper } from '@/components/ClaimButtonWrapper'
 import { WalletHistoryWrapper } from '@/components/WalletHistoryWrapper'
 import { RecentRoundsWrapper } from '@/components/RecentRoundsWrapper'
 
@@ -17,7 +16,6 @@ export default function Home() {
               <img src="/logo.png" alt="Predix" className="h-14 sm:h-16 lg:h-20 w-auto" style={{ clipPath: 'inset(10% 0)' }} />
             </Link>
             <div className="flex items-center gap-2 sm:gap-3">
-              <ClaimButtonWrapper />
               <MintTestTokensWrapper />
               <ConnectWalletButtonWrapper />
             </div>

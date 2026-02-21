@@ -44,10 +44,15 @@ export async function GET(req: Request) {
     )
   }
 
-  // Retorna cache se ainda válido (evita 429)
-  const cached = cache.get(address)
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return NextResponse.json(cached.data)
+  // nocache=1 força refresh (usado após mint para pegar dados frescos)
+  const nocache = searchParams.get('nocache') === '1'
+  if (nocache) {
+    cache.delete(address)
+  } else {
+    const cached = cache.get(address)
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return NextResponse.json(cached.data)
+    }
   }
 
   try {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, isConnected, openContractCall } from '@stacks/connect'
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
@@ -45,6 +45,8 @@ export function MintTestTokens() {
   const [error, setError] = useState<string | null>(null)
   // Flag para indicar que já verificamos pelo menos uma vez com sucesso
   const [verified, setVerified] = useState(false)
+  // Quando o user submeteu mint — previne refresh stale de re-habilitar botão
+  const mintedAtRef = useRef(0)
 
   const refresh = useCallback(async () => {
     if (!isConnected()) {
@@ -74,8 +76,12 @@ export function MintTestTokens() {
       setCanMint(false) // SEMPRE assume que não pode mintar do cache
     }
 
+    // Se mintou recentemente, pula cache do servidor para pegar dados frescos
+    const mintPending = mintedAtRef.current > 0 && Date.now() - mintedAtRef.current < 120_000
+
     try {
-      const r = await fetch(`/api/mint-status?address=${encodeURIComponent(addr)}`)
+      const url = `/api/mint-status?address=${encodeURIComponent(addr)}${mintPending ? '&nocache=1' : ''}`
+      const r = await fetch(url)
       const j = await r.json()
       if (!j.ok) {
         // API retornou erro - NUNCA permite mint em caso de erro
@@ -86,18 +92,31 @@ export function MintTestTokens() {
         // Sucesso na verificação
         setVerified(true)
         const newCanMint = j.canMint === true
-        setCanMint(newCanMint)
         setError(null)
 
-        // Só atualiza saldo com leitura confirmada on-chain
-        // balanceConfirmed === false significa que o read falhou e '0' é default
-        if (j.balanceConfirmed !== false) {
-          const newBalance = typeof j.balance === 'string' ? j.balance : '0'
-          setBalance(newBalance)
+        if (mintPending && newCanMint) {
+          // API retornou stale canMint=true mas user acabou de mintar
+          // Mantém canMint=false, não sobrescreve cache
+          // Mas atualiza saldo se confirmado > 0 (mint confirmou on-chain)
+          if (j.balanceConfirmed !== false) {
+            const newBalance = typeof j.balance === 'string' ? j.balance : '0'
+            if (Number(newBalance) > 0) {
+              setBalance(newBalance)
+              mintedAtRef.current = 0
+              saveMintStatus(addr, true, newBalance)
+            }
+          }
+        } else {
+          setCanMint(newCanMint)
+          // Limpa mintPending quando API confirma que mint aconteceu
+          if (mintPending) mintedAtRef.current = 0
 
-          // Salva no cache - hasMinted = true se canMint é false OU se tem balance > 0
-          const hasMinted = !newCanMint || Number(newBalance) > 0
-          saveMintStatus(addr, hasMinted, newBalance)
+          if (j.balanceConfirmed !== false) {
+            const newBalance = typeof j.balance === 'string' ? j.balance : '0'
+            setBalance(newBalance)
+            const hasMinted = !newCanMint || Number(newBalance) > 0
+            saveMintStatus(addr, hasMinted, newBalance)
+          }
         }
       }
     } catch {
@@ -145,6 +164,7 @@ export function MintTestTokens() {
       setBalance('0')
       setCanMint(null)
       setVerified(false)
+      mintedAtRef.current = 0
     }
     window.addEventListener('bitpredix:wallet-disconnected', handleDisconnect)
     return () => window.removeEventListener('bitpredix:wallet-disconnected', handleDisconnect)
@@ -226,8 +246,8 @@ export function MintTestTokens() {
             network: 'testnet',
             onFinish: () => {
               setMinting(false)
-              // Marca como mintou no cache mas mantém saldo atual
-              // Saldo real será atualizado via refresh() quando tx confirmar on-chain
+              // Marca momento do mint — previne refresh stale de re-habilitar botão
+              mintedAtRef.current = Date.now()
               saveMintStatus(stx, true, balance)
               setCanMint(false)
               // Dispara refresh com backoff para pegar confirmação on-chain
