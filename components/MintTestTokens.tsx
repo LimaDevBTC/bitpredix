@@ -1,16 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getLocalStorage, isConnected, openContractCall } from '@stacks/connect'
+import { getLocalStorage, isConnected } from '@stacks/connect'
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const STORAGE_KEY = 'bitpredix_mint_status'
-
-function parseContractId(id: string): [string, string] {
-  const i = id.lastIndexOf('.')
-  if (i < 0) return ['', '']
-  return [id.slice(0, i), id.slice(i + 1)]
-}
 
 // Salva estado no localStorage para persistir entre reloads
 function saveMintStatus(address: string, hasMinted: boolean, balance: string) {
@@ -41,10 +35,7 @@ export function MintTestTokens() {
   const [canMint, setCanMint] = useState<boolean | null>(null)
   const [balance, setBalance] = useState<string>('0')
   const [loading, setLoading] = useState(true)
-  const [minting, setMinting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Flag para indicar que já verificamos pelo menos uma vez com sucesso
-  const [verified, setVerified] = useState(false)
   // Quando o user submeteu mint — previne refresh stale de re-habilitar botão
   const mintedAtRef = useRef(0)
 
@@ -55,7 +46,6 @@ export function MintTestTokens() {
       // NÃO reseta balance — componente já retorna null quando desconectado
       setLoading(false)
       setError(null)
-      setVerified(false)
       return
     }
     const data = getLocalStorage()
@@ -90,7 +80,6 @@ export function MintTestTokens() {
         // Mantém balance anterior se existir
       } else {
         // Sucesso na verificação
-        setVerified(true)
         const newCanMint = j.canMint === true
         setError(null)
 
@@ -163,7 +152,6 @@ export function MintTestTokens() {
       setStx(null)
       setBalance('0')
       setCanMint(null)
-      setVerified(false)
       mintedAtRef.current = 0
     }
     window.addEventListener('bitpredix:wallet-disconnected', handleDisconnect)
@@ -183,7 +171,7 @@ export function MintTestTokens() {
   // REGRA 1: Se tem saldo > 0, SEMPRE mostra o saldo
   if (hasBalance) {
     return (
-      <span className="text-zinc-500 text-sm">
+      <span className="text-zinc-500 text-sm hidden sm:inline">
         ${(balanceNum / 1e6).toFixed(2)}
       </span>
     )
@@ -192,7 +180,7 @@ export function MintTestTokens() {
   // REGRA 2: Se está carregando, mostra loading (nunca botão de mint)
   if (loading) {
     return (
-      <span className="text-zinc-500 text-sm">Verificando…</span>
+      <span className="text-zinc-500 text-sm hidden sm:inline">Verificando…</span>
     )
   }
 
@@ -216,59 +204,15 @@ export function MintTestTokens() {
   // REGRA 4: Se o cache indica que já mintou, mostra saldo (nunca botão)
   if (cachedHasMinted) {
     return (
-      <span className="text-zinc-500 text-sm">
+      <span className="text-zinc-500 text-sm hidden sm:inline">
         ${(balanceNum / 1e6).toFixed(2)}
       </span>
     )
   }
 
-  // REGRA 5: Só mostra botão de mint se TODAS as condições são verdadeiras:
-  // - canMint é EXPLICITAMENTE true (não null, não false)
-  // - Não está carregando
-  // - Não tem erro
-  // - Não tem saldo
-  // - Cache não indica que já mintou
-  // - Verificamos com sucesso pelo menos uma vez
-  if (canMint === true && verified) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          const [contractAddress, contractName] = parseContractId(CONTRACT_ID)
-          if (!contractAddress || !contractName) return
-          setMinting(true)
-          setError(null)
-          openContractCall({
-            contractAddress,
-            contractName,
-            functionName: 'mint',
-            functionArgs: [],
-            network: 'testnet',
-            onFinish: () => {
-              setMinting(false)
-              // Marca momento do mint — previne refresh stale de re-habilitar botão
-              mintedAtRef.current = Date.now()
-              saveMintStatus(stx, true, balance)
-              setCanMint(false)
-              // Dispara refresh com backoff para pegar confirmação on-chain
-              window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
-            },
-            onCancel: () => {
-              setMinting(false)
-            },
-          })
-        }}
-        disabled={minting}
-        className="px-3 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 hover:border-emerald-500/60 font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-      >
-        {minting ? 'A assinar…' : 'mint test usdc'}
-      </button>
-    )
-  }
-
-  // Fallback: mostra saldo (mesmo que seja 0) - NUNCA mostra botão de mint como fallback
+  // Fallback: mostra saldo (mesmo que seja 0) — mint agora acontece no MarketCard
   return (
-    <span className="text-zinc-500 text-sm">
+    <span className="text-zinc-500 text-sm hidden sm:inline">
       ${(balanceNum / 1e6).toFixed(2)}
     </span>
   )

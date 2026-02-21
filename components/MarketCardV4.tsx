@@ -179,6 +179,9 @@ export function MarketCardV4() {
   const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(null)
   const [checkingAllowance, setCheckingAllowance] = useState(false)
   const [tokenBalance, setTokenBalance] = useState(0) // USD (already divided by 1e6)
+  const [canMint, setCanMint] = useState(false)
+  const [mintingTokens, setMintingTokens] = useState(false)
+  const mintSubmittedRef = useRef(0)
 
   // Verifica allowance no blockchain
   const checkAllowance = useCallback(async (addr: string) => {
@@ -195,10 +198,15 @@ export function MarketCardV4() {
       const response = await fetch(`/api/allowance-status?address=${encodeURIComponent(addr)}`)
       const data = await response.json()
 
-      // Fetch balance in parallel (non-blocking)
+      // Fetch balance + canMint in parallel (non-blocking)
       fetch(`/api/mint-status?address=${encodeURIComponent(addr)}`)
         .then(r => r.json())
-        .then(d => { if (d.ok && d.balance) setTokenBalance(Number(d.balance) / 1e6) })
+        .then(d => {
+          if (d.ok) {
+            if (d.balance) setTokenBalance(Number(d.balance) / 1e6)
+            if (d.canMint !== true || !mintSubmittedRef.current) setCanMint(d.canMint === true)
+          }
+        })
         .catch(() => {})
 
       console.log('[MarketCardV4] Allowance check:', data)
@@ -263,7 +271,12 @@ export function MarketCardV4() {
       if (!stxAddress) return
       fetch(`/api/mint-status?address=${encodeURIComponent(stxAddress)}`)
         .then(r => r.json())
-        .then(d => { if (d.ok && d.balance) setTokenBalance(Number(d.balance) / 1e6) })
+        .then(d => {
+          if (d.ok) {
+            if (d.balance) setTokenBalance(Number(d.balance) / 1e6)
+            if (d.canMint !== true || !mintSubmittedRef.current) setCanMint(d.canMint === true)
+          }
+        })
         .catch(() => {})
     }
     window.addEventListener('bitpredix:balance-changed', refreshBalance)
@@ -333,6 +346,41 @@ export function MarketCardV4() {
       }
     } finally {
       setTrading(false)
+    }
+  }
+
+  // Mint test tokens (onboarding step after approval)
+  const mintTokens = async () => {
+    const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
+    if (!tokenAddr || !tokenName) {
+      setError('Token contract not configured')
+      return
+    }
+    setMintingTokens(true)
+    setError(null)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        openContractCall({
+          contractAddress: tokenAddr,
+          contractName: tokenName,
+          functionName: 'mint',
+          functionArgs: [],
+          network: 'testnet',
+          onFinish: () => {
+            mintSubmittedRef.current = Date.now()
+            setCanMint(false)
+            window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
+            resolve()
+          },
+          onCancel: () => reject(new Error('Cancelled'))
+        })
+      })
+    } catch (e) {
+      if (e instanceof Error && e.message !== 'Cancelled') {
+        setError(e.message)
+      }
+    } finally {
+      setMintingTokens(false)
     }
   }
 
@@ -587,7 +635,8 @@ export function MarketCardV4() {
         {(() => {
           const needsApproval = stxAddress && !checkingAllowance && tradingEnabled !== true
           const isChecking = stxAddress && checkingAllowance
-          const showOverlay = needsApproval || isChecking
+          const needsMint = stxAddress && tradingEnabled === true && tokenBalance === 0 && canMint
+          const showOverlay = needsApproval || isChecking || needsMint
           return (
             <div className="relative">
               {/* Trading controls — always rendered to lock the height; invisible when overlay active */}
@@ -681,22 +730,57 @@ export function MarketCardV4() {
                 </div>
               </div>
 
-              {/* Approval overlay — positioned on top of the invisible controls */}
+              {/* Onboarding overlay — approval or mint step */}
               {showOverlay && (
                 <div className="absolute inset-0 flex flex-col justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-bitcoin/10 border border-bitcoin/20 flex items-center justify-center shrink-0">
-                      <svg className="w-3.5 h-3.5 text-bitcoin" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-                      </svg>
-                    </div>
+                    {needsMint ? (
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                        <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                      </div>
+                    ) : (
+                      <div className="w-7 h-7 rounded-lg bg-bitcoin/10 border border-bitcoin/20 flex items-center justify-center shrink-0">
+                        <svg className="w-3.5 h-3.5 text-bitcoin" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                        </svg>
+                      </div>
+                    )}
                     <div className="min-w-0">
-                      <p className="text-xs sm:text-sm font-medium text-zinc-200 leading-tight">Approve TUSDC to predict</p>
-                      <p className="text-[11px] text-zinc-500 leading-tight mt-0.5">One-time contract approval</p>
+                      {needsMint ? (
+                        <>
+                          <p className="text-xs sm:text-sm font-medium text-zinc-200 leading-tight">Get test tokens</p>
+                          <p className="text-[11px] text-zinc-500 leading-tight mt-0.5">Mint free TUSDC to start predicting</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs sm:text-sm font-medium text-zinc-200 leading-tight">Approve TUSDC to predict</p>
+                          <p className="text-[11px] text-zinc-500 leading-tight mt-0.5">One-time contract approval</p>
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  {needsApproval ? (
+                  {needsMint ? (
+                    <button
+                      onClick={mintTokens}
+                      disabled={mintingTokens}
+                      className="w-full flex flex-col items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 py-2.5 sm:py-3 hover:bg-emerald-500/30 hover:border-emerald-500/60 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                      {mintingTokens ? (
+                        <span className="flex items-center gap-2 text-sm font-semibold">
+                          <span className="h-4 w-4 border-2 border-emerald-500/40 border-t-emerald-400 rounded-full animate-spin" />
+                          Awaiting wallet...
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">Mint TUSDC</span>
+                          <span className="text-[11px] sm:text-xs font-mono opacity-70 leading-tight">free test tokens</span>
+                        </>
+                      )}
+                    </button>
+                  ) : needsApproval ? (
                     <button
                       onClick={enableTrading}
                       disabled={trading}

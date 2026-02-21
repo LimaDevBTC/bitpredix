@@ -47,6 +47,7 @@ export function ConnectWalletButton() {
   const [error, setError] = useState<string | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [mobileBalance, setMobileBalance] = useState<string | null>(null)
 
   const refreshAddress = useCallback(() => {
     if (!isConnected()) {
@@ -61,6 +62,27 @@ export function ConnectWalletButton() {
   useEffect(() => {
     refreshAddress()
   }, [refreshAddress])
+
+  // Read balance from MintTestTokens cache for mobile display
+  useEffect(() => {
+    if (!stxAddress) { setMobileBalance(null); return }
+    const update = () => {
+      try {
+        const data = JSON.parse(localStorage.getItem('bitpredix_mint_status') || '{}')
+        const entry = data[stxAddress]
+        if (entry?.balance && Number(entry.balance) > 0) {
+          setMobileBalance((Number(entry.balance) / 1e6).toFixed(2))
+        } else {
+          setMobileBalance(null)
+        }
+      } catch { setMobileBalance(null) }
+    }
+    update()
+    const id = setInterval(update, 5000)
+    const onBalanceChanged = () => setTimeout(update, 1000)
+    window.addEventListener('bitpredix:balance-changed', onBalanceChanged)
+    return () => { clearInterval(id); window.removeEventListener('bitpredix:balance-changed', onBalanceChanged) }
+  }, [stxAddress])
 
   useEffect(() => {
     if (!dropdownOpen) return
@@ -113,7 +135,7 @@ export function ConnectWalletButton() {
           >
             <span className="h-1.5 w-1.5 rounded-full bg-up shrink-0" aria-hidden />
             <span className="hidden sm:inline">Connected</span>
-            <span className="sm:hidden">{truncateAddress(stxAddress, 4, 3)}</span>
+            <span className="sm:hidden">{mobileBalance ? `$${mobileBalance}` : truncateAddress(stxAddress, 4, 3)}</span>
           </button>
           {dropdownOpen && (
             <div
