@@ -47,6 +47,52 @@ export interface WalletStats {
   winRate: number
 }
 
+export interface ProfileBetRecord {
+  roundId: number
+  timestamp: number
+  side: 'UP' | 'DOWN'
+  amountUsd: number
+  outcome: 'UP' | 'DOWN' | null
+  resolved: boolean
+  totalPool: number
+  winningPool: number
+  pnl: number
+  poolSharePct: number
+  priceStart: number | null
+  priceEnd: number | null
+  txId: string
+}
+
+export interface EquityPoint {
+  time: number
+  value: number
+}
+
+export interface WalletProfile {
+  address: string
+  firstSeen: number
+  stats: {
+    totalBets: number
+    totalVolumeUsd: number
+    wins: number
+    losses: number
+    pending: number
+    winRate: number
+    totalPnl: number
+    roi: number
+    bestWin: number
+    worstLoss: number
+    avgBetSize: number
+    longestWinStreak: number
+    longestLoseStreak: number
+    currentStreak: { type: 'win' | 'loss'; count: number }
+    sideDistribution: { upVolume: number; downVolume: number }
+  }
+  equityCurve: EquityPoint[]
+  recentBets: ProfileBetRecord[]
+  totalBetRecords: number
+}
+
 export interface IndexerStatus {
   roundCount: number
   lastScan: number
@@ -484,6 +530,245 @@ export function getWalletStats(address: string): WalletStats {
     pending,
     winRate: decided > 0 ? wins / decided : 0,
   }
+}
+
+export async function getWalletProfile(
+  address: string,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<WalletProfile> {
+  // Trigger scan if needed
+  await scanContractTransactions()
+  const allBetRecords: ProfileBetRecord[] = []
+  let firstSeen = Infinity
+
+  for (const round of roundsIndex.values()) {
+    const userBets = round.bets.filter((b) => b.user === address && b.status === 'success')
+    if (userBets.length === 0) continue
+
+    for (const bet of userBets) {
+      if (bet.timestamp < firstSeen) firstSeen = bet.timestamp
+
+      let pnl = 0
+      let winningPool = 0
+      let poolSharePct = 0
+      const sidePool = bet.side === 'UP' ? round.totalUpUsd : round.totalDownUsd
+
+      if (sidePool > 0) {
+        poolSharePct = (bet.amountUsd / sidePool) * 100
+      }
+
+      if (round.resolved && round.outcome) {
+        winningPool = round.outcome === 'UP' ? round.totalUpUsd : round.totalDownUsd
+        if (bet.side === round.outcome) {
+          const grossPayout = (bet.amountUsd / winningPool) * round.totalPoolUsd
+          const fee = grossPayout * 0.03
+          pnl = grossPayout - fee - bet.amountUsd
+        } else {
+          pnl = -bet.amountUsd
+        }
+      }
+
+      allBetRecords.push({
+        roundId: round.roundId,
+        timestamp: round.endTimestamp,
+        side: bet.side,
+        amountUsd: bet.amountUsd,
+        outcome: round.outcome,
+        resolved: round.resolved,
+        totalPool: round.totalPoolUsd,
+        winningPool,
+        pnl,
+        poolSharePct,
+        priceStart: round.priceStart,
+        priceEnd: round.priceEnd,
+        txId: bet.txId,
+      })
+    }
+  }
+
+  allBetRecords.sort((a, b) => a.timestamp - b.timestamp)
+
+  let totalPnl = 0, wins = 0, losses = 0, pending = 0
+  let bestWin = 0, worstLoss = 0
+  let upVolume = 0, downVolume = 0
+  let totalVolume = 0
+  let curStreak = 0, curStreakType: 'win' | 'loss' = 'win'
+  let longestWin = 0, longestLose = 0
+
+  const equityCurve: EquityPoint[] = []
+  let cumPnl = 0
+
+  for (const bet of allBetRecords) {
+    totalVolume += bet.amountUsd
+    if (bet.side === 'UP') upVolume += bet.amountUsd
+    else downVolume += bet.amountUsd
+
+    if (!bet.resolved) {
+      pending++
+      continue
+    }
+
+    totalPnl += bet.pnl
+    cumPnl += bet.pnl
+    equityCurve.push({ time: bet.timestamp, value: cumPnl })
+
+    if (bet.pnl > bestWin) bestWin = bet.pnl
+    if (bet.pnl < worstLoss) worstLoss = bet.pnl
+
+    const isWin = bet.pnl >= 0
+    if (isWin) {
+      wins++
+      if (curStreakType === 'win') { curStreak++ }
+      else { curStreak = 1; curStreakType = 'win' }
+      if (curStreak > longestWin) longestWin = curStreak
+    } else {
+      losses++
+      if (curStreakType === 'loss') { curStreak++ }
+      else { curStreak = 1; curStreakType = 'loss' }
+      if (curStreak > longestLose) longestLose = curStreak
+    }
+  }
+
+  const decided = wins + losses
+  const totalBets = allBetRecords.length
+
+  const sortedDesc = [...allBetRecords].reverse()
+  const start = (page - 1) * pageSize
+  const recentBets = sortedDesc.slice(start, start + pageSize)
+
+  return {
+    address,
+    firstSeen: firstSeen === Infinity ? 0 : firstSeen,
+    stats: {
+      totalBets,
+      totalVolumeUsd: totalVolume,
+      wins,
+      losses,
+      pending,
+      winRate: decided > 0 ? wins / decided : 0,
+      totalPnl,
+      roi: totalVolume > 0 ? totalPnl / totalVolume : 0,
+      bestWin,
+      worstLoss,
+      avgBetSize: totalBets > 0 ? totalVolume / totalBets : 0,
+      longestWinStreak: longestWin,
+      longestLoseStreak: longestLose,
+      currentStreak: { type: curStreakType, count: curStreak },
+      sideDistribution: { upVolume, downVolume },
+    },
+    equityCurve,
+    recentBets,
+    totalBetRecords: allBetRecords.length,
+  }
+}
+
+// ============================================================================
+// LEADERBOARD
+// ============================================================================
+
+export interface LeaderboardEntry {
+  rank: number
+  address: string
+  totalBets: number
+  totalVolumeUsd: number
+  wins: number
+  losses: number
+  winRate: number
+  totalPnl: number
+  roi: number
+}
+
+export type LeaderboardSortBy = 'pnl' | 'volume' | 'winRate' | 'totalBets' | 'roi'
+
+export async function getLeaderboard(
+  sortBy: LeaderboardSortBy = 'pnl',
+  page: number = 1,
+  pageSize: number = 50,
+  search?: string
+): Promise<{ entries: LeaderboardEntry[]; total: number }> {
+  // Trigger scan if needed
+  await scanContractTransactions()
+  // 1. Collect all unique addresses from roundsIndex
+  const statsMap = new Map<string, {
+    totalBets: number
+    totalVolumeUsd: number
+    wins: number
+    losses: number
+    totalPnl: number
+  }>()
+
+  for (const round of roundsIndex.values()) {
+    for (const bet of round.bets) {
+      if (bet.status !== 'success') continue
+
+      let entry = statsMap.get(bet.user)
+      if (!entry) {
+        entry = { totalBets: 0, totalVolumeUsd: 0, wins: 0, losses: 0, totalPnl: 0 }
+        statsMap.set(bet.user, entry)
+      }
+
+      entry.totalBets++
+      entry.totalVolumeUsd += bet.amountUsd
+
+      if (round.resolved && round.outcome) {
+        if (bet.side === round.outcome) {
+          entry.wins++
+          const winningPool = round.outcome === 'UP' ? round.totalUpUsd : round.totalDownUsd
+          if (winningPool > 0) {
+            const grossPayout = (bet.amountUsd / winningPool) * round.totalPoolUsd
+            const fee = grossPayout * 0.03
+            entry.totalPnl += grossPayout - fee - bet.amountUsd
+          }
+        } else {
+          entry.losses++
+          entry.totalPnl -= bet.amountUsd
+        }
+      }
+    }
+  }
+
+  // 2. Convert to LeaderboardEntry array
+  let entries: Omit<LeaderboardEntry, 'rank'>[] = []
+  for (const [address, s] of statsMap) {
+    const decided = s.wins + s.losses
+    entries.push({
+      address,
+      totalBets: s.totalBets,
+      totalVolumeUsd: s.totalVolumeUsd,
+      wins: s.wins,
+      losses: s.losses,
+      winRate: decided > 0 ? s.wins / decided : 0,
+      totalPnl: s.totalPnl,
+      roi: s.totalVolumeUsd > 0 ? s.totalPnl / s.totalVolumeUsd : 0,
+    })
+  }
+
+  // 2b. Filter by search query
+  if (search && search.trim().length > 0) {
+    const q = search.trim().toUpperCase()
+    entries = entries.filter((e) => e.address.toUpperCase().includes(q))
+  }
+
+  // 3. Sort
+  const sortFns: Record<LeaderboardSortBy, (a: typeof entries[0], b: typeof entries[0]) => number> = {
+    pnl: (a, b) => b.totalPnl - a.totalPnl,
+    volume: (a, b) => b.totalVolumeUsd - a.totalVolumeUsd,
+    winRate: (a, b) => b.winRate - a.winRate || b.totalBets - a.totalBets,
+    totalBets: (a, b) => b.totalBets - a.totalBets,
+    roi: (a, b) => b.roi - a.roi || b.totalVolumeUsd - a.totalVolumeUsd,
+  }
+  entries.sort(sortFns[sortBy])
+
+  // 4. Paginate and assign ranks
+  const total = entries.length
+  const start = (page - 1) * pageSize
+  const paged = entries.slice(start, start + pageSize).map((e, i) => ({
+    ...e,
+    rank: start + i + 1,
+  }))
+
+  return { entries: paged, total }
 }
 
 export function getIndexerStatus(): IndexerStatus {

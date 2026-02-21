@@ -23,6 +23,7 @@
     "@stacks/wallet-sdk": "^7.2.0",
     "dotenv": "^17.2.3",
     "lightweight-charts": "^5.1.0",
+    "lucide-react": "^0.575.0",
     "next": "^16.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

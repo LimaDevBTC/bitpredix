@@ -445,9 +445,7 @@ function RoundRow({
                       >
                         {/* Wallet */}
                         <a
-                          href={`https://explorer.hiro.so/address/${bet.user}?chain=testnet`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          href={`/profile/${bet.user}`}
                           className="text-zinc-400 hover:text-zinc-200 transition-colors font-mono text-[11px] truncate"
                           title={bet.user}
                         >

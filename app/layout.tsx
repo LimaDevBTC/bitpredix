@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Outfit, JetBrains_Mono } from 'next/font/google'
+import { AppHeader } from '@/components/AppHeader'
 import './globals.css'
 
 const outfit = Outfit({ subsets: ['latin'], variable: '--font-sans' })
@@ -53,6 +54,7 @@ export default function RootLayout({
         <style dangerouslySetInnerHTML={{ __html: 'html,body{background:#09090b!important;color:#f4f4f5!important;min-height:100vh}' }} />
       </head>
       <body className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased">
+        <AppHeader />
         {children}
       </body>
     </html>

@@ -184,7 +184,7 @@ export function MintTestTokens() {
   if (hasBalance) {
     return (
       <span className="text-zinc-500 text-sm">
-        {(balanceNum / 1e6).toFixed(2)} TUSDC
+        ${(balanceNum / 1e6).toFixed(2)}
       </span>
     )
   }
@@ -217,7 +217,7 @@ export function MintTestTokens() {
   if (cachedHasMinted) {
     return (
       <span className="text-zinc-500 text-sm">
-        {(balanceNum / 1e6).toFixed(2)} TUSDC
+        ${(balanceNum / 1e6).toFixed(2)}
       </span>
     )
   }
@@ -269,7 +269,7 @@ export function MintTestTokens() {
   // Fallback: mostra saldo (mesmo que seja 0) - NUNCA mostra botão de mint como fallback
   return (
     <span className="text-zinc-500 text-sm">
-      {(balanceNum / 1e6).toFixed(2)} TUSDC
+      ${(balanceNum / 1e6).toFixed(2)}
     </span>
   )
 }
