@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { getLocalStorage, isConnected } from '@stacks/connect'
-import { uintCV, standardPrincipalCV, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
+import { uintCV, standardPrincipalCV, stringAsciiCV, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
 
@@ -86,45 +86,50 @@ export function usePendingRounds(): UsePendingRoundsResult {
         return
       }
 
-      // Busca detalhes de cada aposta
+      // Busca detalhes de cada aposta (ambos os lados: UP e DOWN)
       const rounds: PendingRoundInfo[] = []
       let total = 0
 
       for (const roundId of roundIds) {
-        try {
-          const betResponse = await fetch('/api/stacks-read', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contractId: BITPREDIX_CONTRACT,
-              functionName: 'get-bet',
-              args: [
-                cvToHex(uintCV(roundId)),
-                cvToHex(standardPrincipalCV(stxAddress))
-              ],
-              sender: stxAddress
-            })
-          }).catch(() => null) // Silently handle network errors
+        for (const side of ['UP', 'DOWN'] as const) {
+          try {
+            const betResponse = await fetch('/api/stacks-read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contractId: BITPREDIX_CONTRACT,
+                functionName: 'get-bet',
+                args: [
+                  cvToHex(uintCV(roundId)),
+                  cvToHex(standardPrincipalCV(stxAddress)),
+                  cvToHex(stringAsciiCV(side))
+                ],
+                sender: stxAddress
+              })
+            }).catch(() => null)
 
-          if (betResponse && betResponse.ok) {
-            const betData = await betResponse.json()
-            if (betData.okay && betData.result) {
-              const betCV = hexToCV(betData.result)
-              const betJSON = cvToJSON(betCV)
+            if (betResponse && betResponse.ok) {
+              const betData = await betResponse.json()
+              if (betData.okay && betData.result) {
+                const betCV = hexToCV(betData.result)
+                const betJSON = cvToJSON(betCV)
+                // cvToJSON wraps optional(tuple(...)) — .value.value to unwrap both layers
+                const tupleValue = betJSON?.value?.value
 
-              if (betJSON?.value && betJSON.value.claimed?.value !== true) {
-                const amount = parseInt(betJSON.value.amount?.value || '0')
-                rounds.push({
-                  roundId,
-                  side: betJSON.value.side?.value || '',
-                  amount
-                })
-                total += amount
+                if (tupleValue && tupleValue.claimed?.value !== true) {
+                  const amount = parseInt(tupleValue.amount?.value || '0')
+                  rounds.push({
+                    roundId,
+                    side,
+                    amount
+                  })
+                  total += amount
+                }
               }
             }
+          } catch {
+            // Silently ignore errors fetching individual bets
           }
-        } catch {
-          // Silently ignore errors fetching individual bets
         }
       }
 

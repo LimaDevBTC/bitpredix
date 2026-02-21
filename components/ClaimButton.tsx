@@ -162,11 +162,13 @@ export function ClaimButton() {
                 const betCV = hexToCV(betData.result)
                 const betJSON = cvToJSON(betCV)
 
-                if (betJSON?.value) {
+                // cvToJSON wraps optional(tuple(...)) — .value.value to unwrap both layers
+                const tupleValue = betJSON?.value?.value
+                if (tupleValue) {
                   bets.push({
                     side,
-                    amount: parseInt(betJSON.value.amount?.value || '0'),
-                    claimed: betJSON.value.claimed?.value === true
+                    amount: parseInt(tupleValue.amount?.value || '0'),
+                    claimed: tupleValue.claimed?.value === true
                   })
                 }
               }
