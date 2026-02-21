@@ -435,8 +435,10 @@ export async function getRoundHistory(opts: {
     }
   }
 
-  // Paginated list, newest first
-  const allRounds = [...roundsIndex.values()].sort((a, b) => b.roundId - a.roundId)
+  // Paginated list, newest first — skip rounds with no successful bets
+  const allRounds = [...roundsIndex.values()]
+    .filter((r) => r.totalPoolUsd > 0)
+    .sort((a, b) => b.roundId - a.roundId)
   const start = (page - 1) * pageSize
   const slice = allRounds.slice(start, start + pageSize)
 
