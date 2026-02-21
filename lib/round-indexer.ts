@@ -172,11 +172,29 @@ function parseClaimTx(tx: HiroTx): { roundId: number; priceStart: number; priceE
   }
 
   if (fn === 'claim-round-side' && args.length >= 4) {
-    // v6: (round-id, side, price-start, price-end)
+    // v6/predixv1: (round-id, side, price-start, price-end)
     return {
       roundId: parseUint(args[0].repr),
       priceStart: parseUint(args[2].repr),
       priceEnd: parseUint(args[3].repr),
+    }
+  }
+
+  if (fn === 'resolve-round' && args.length >= 3) {
+    // predixv1: (round-id, price-start, price-end)
+    return {
+      roundId: parseUint(args[0].repr),
+      priceStart: parseUint(args[1].repr),
+      priceEnd: parseUint(args[2].repr),
+    }
+  }
+
+  if (fn === 'claim-on-behalf' && args.length >= 5) {
+    // predixv1 cron: (user, round-id, side, price-start, price-end)
+    return {
+      roundId: parseUint(args[1].repr),
+      priceStart: parseUint(args[3].repr),
+      priceEnd: parseUint(args[4].repr),
     }
   }
 
@@ -283,11 +301,14 @@ async function enrichUnresolvedRounds(): Promise<void> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cv = deserializeCV(json.data) as any
       const tuple = cv?.type === 'some' && cv?.value ? cv.value : cv
-      const d = tuple?.data ?? cv?.data
+      // v7 @stacks/transactions: tuple fields are under .value, not .data
+      const d = tuple?.value ?? tuple?.data ?? cv?.value ?? cv?.data
       if (!d) continue
 
       const u = (k: string) => Number(d[k]?.value ?? 0)
-      const resolved = d['resolved']?.value === true || String(d['resolved']?.value) === 'true'
+      // v7 @stacks/transactions: bools have .type 'true'/'false', not .value
+      const resolvedField = d['resolved']
+      const resolved = resolvedField?.type === 'true' || resolvedField?.value === true || String(resolvedField?.value) === 'true'
 
       if (resolved) {
         const priceStart = u('price-start')
@@ -350,7 +371,7 @@ async function scanContractTransactions(): Promise<void> {
           }
         }
 
-        if (fn === 'claim-round' || fn === 'claim-round-side') {
+        if (fn === 'claim-round' || fn === 'claim-round-side' || fn === 'resolve-round' || fn === 'claim-on-behalf') {
           if (tx.tx_status === 'success') {
             const parsed = parseClaimTx(tx)
             if (parsed) {
