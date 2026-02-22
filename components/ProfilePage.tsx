@@ -206,10 +206,39 @@ function BetRow({ bet, expanded, onToggle }: {
 
   return (
     <div className="border-b border-zinc-800/50 last:border-b-0">
-      {/* Summary row */}
+      {/* Mobile summary row */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-800/20 transition-colors"
+        className="sm:hidden w-full px-3 py-2.5 text-left hover:bg-zinc-800/20 transition-colors"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-medium ${bet.side === 'UP' ? 'text-up' : 'text-down'}`}>
+              {bet.side} {bet.side === 'UP' ? '\u2191' : '\u2193'}
+            </span>
+            <span className="text-zinc-300 font-mono text-xs">${formatUsd(bet.amountUsd)}</span>
+          </div>
+          <span className={`text-xs font-mono font-medium ${
+            !bet.resolved ? 'text-zinc-500' : bet.pnl >= 0 ? 'text-up' : 'text-down'
+          }`}>
+            {!bet.resolved ? '-' : `${bet.pnl >= 0 ? '+' : ''}$${formatUsd(Math.abs(bet.pnl))}`}
+          </span>
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[10px] text-zinc-500">{timeAgo(bet.timestamp)}</span>
+          <span className={`text-[10px] ${
+            !bet.resolved ? 'text-zinc-500' :
+            bet.outcome === bet.side ? 'text-up' : 'text-down'
+          }`}>
+            {!bet.resolved ? 'pending' : `${bet.outcome === bet.side ? 'Won \u2713' : 'Lost \u2717'}`}
+          </span>
+        </div>
+      </button>
+
+      {/* Desktop summary row */}
+      <button
+        onClick={onToggle}
+        className="hidden sm:flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-800/20 transition-colors"
       >
         {/* Time */}
         <span className="text-zinc-500 text-[11px] w-16 shrink-0">
@@ -217,7 +246,7 @@ function BetRow({ bet, expanded, onToggle }: {
         </span>
 
         {/* Side */}
-        <span className={`text-xs font-medium w-12 shrink-0 ${
+        <span className={`text-xs font-medium w-12 shrink-0 whitespace-nowrap ${
           bet.side === 'UP' ? 'text-up' : 'text-down'
         }`}>
           {bet.side} {bet.side === 'UP' ? '\u2191' : '\u2193'}
@@ -229,12 +258,12 @@ function BetRow({ bet, expanded, onToggle }: {
         </span>
 
         {/* Pool % */}
-        <span className="text-zinc-500 text-[11px] w-14 shrink-0 text-right hidden sm:block">
+        <span className="text-zinc-500 text-[11px] w-14 shrink-0 text-right">
           {bet.poolSharePct.toFixed(1)}%
         </span>
 
         {/* Outcome */}
-        <span className={`text-xs w-16 shrink-0 text-right ${
+        <span className={`text-xs w-16 shrink-0 text-right whitespace-nowrap ${
           !bet.resolved ? 'text-zinc-500' :
           bet.outcome === bet.side ? 'text-up' : 'text-down'
         }`}>

@@ -771,6 +771,53 @@ export async function getLeaderboard(
   return { entries: paged, total }
 }
 
+export interface GlobalStats {
+  totalVolume: number
+  totalRounds: number
+  resolvedRounds: number
+  upWins: number
+  downWins: number
+  uniqueWallets: number
+  largestPool: number
+  avgPoolSize: number
+}
+
+export function getGlobalStats(): GlobalStats {
+  let totalVolume = 0
+  let totalRounds = 0
+  let resolvedRounds = 0
+  let upWins = 0
+  let downWins = 0
+  const uniqueWallets = new Set<string>()
+  let largestPool = 0
+
+  for (const round of roundsIndex.values()) {
+    if (round.totalPoolUsd === 0) continue
+    totalRounds++
+    totalVolume += round.totalPoolUsd
+    if (round.totalPoolUsd > largestPool) largestPool = round.totalPoolUsd
+    if (round.resolved) {
+      resolvedRounds++
+      if (round.outcome === 'UP') upWins++
+      else if (round.outcome === 'DOWN') downWins++
+    }
+    for (const bet of round.bets) {
+      if (bet.status === 'success') uniqueWallets.add(bet.user)
+    }
+  }
+
+  return {
+    totalVolume,
+    totalRounds,
+    resolvedRounds,
+    upWins,
+    downWins,
+    uniqueWallets: uniqueWallets.size,
+    largestPool,
+    avgPoolSize: totalRounds > 0 ? totalVolume / totalRounds : 0,
+  }
+}
+
 export function getIndexerStatus(): IndexerStatus {
   return {
     roundCount: roundsIndex.size,

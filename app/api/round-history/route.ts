@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getRoundHistory, getIndexerStatus } from '@/lib/round-indexer'
+import { getRoundHistory, getIndexerStatus, getGlobalStats } from '@/lib/round-indexer'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -15,6 +15,11 @@ export async function GET(req: Request) {
   // Indexer status endpoint
   if (searchParams.get('status') === 'indexer') {
     return NextResponse.json({ ...getIndexerStatus(), ok: true })
+  }
+
+  // Global stats endpoint
+  if (searchParams.get('stats') === 'global') {
+    return NextResponse.json({ ...getGlobalStats(), ok: true })
   }
 
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'))

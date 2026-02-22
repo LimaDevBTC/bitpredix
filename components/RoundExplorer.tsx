@@ -70,6 +70,44 @@ function shortenAddress(addr: string): string {
 }
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toFixed(0)
+}
+
+// ============================================================================
+// STAT CARD
+// ============================================================================
+
+function GlobalStatCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
+      <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</div>
+      <div className="text-sm font-mono text-zinc-200 mt-0.5">{value}</div>
+    </div>
+  )
+}
+
+// ============================================================================
+// TYPES (global stats)
+// ============================================================================
+
+interface GlobalStats {
+  totalVolume: number
+  totalRounds: number
+  resolvedRounds: number
+  upWins: number
+  downWins: number
+  uniqueWallets: number
+  largestPool: number
+  avgPoolSize: number
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -84,6 +122,7 @@ export function RoundExplorer({ initialRoundId }: { initialRoundId?: number }) {
   const [searchQuery, setSearchQuery] = useState(initialRoundId ? String(initialRoundId) : '')
   const [searchActive, setSearchActive] = useState(!!initialRoundId)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [stats, setStats] = useState<GlobalStats | null>(null)
 
   // Fetch paginated rounds
   const fetchRounds = useCallback(async (pageNum: number, append: boolean) => {
@@ -155,6 +194,14 @@ export function RoundExplorer({ initialRoundId }: { initialRoundId?: number }) {
     }
   }, [fetchRounds, searchRound, initialRoundId])
 
+  // Fetch global stats
+  useEffect(() => {
+    fetch('/api/round-history?stats=global')
+      .then(r => r.json())
+      .then(data => { if (data.ok) setStats(data) })
+      .catch(() => {})
+  }, [])
+
   // Listen for new bets/claims
   useEffect(() => {
     const onUpdate = () => {
@@ -214,6 +261,16 @@ export function RoundExplorer({ initialRoundId }: { initialRoundId?: number }) {
           </button>
         )}
       </div>
+
+      {/* Global stats */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <GlobalStatCard label="Total Volume" value={`$${formatCompact(stats.totalVolume)}`} />
+          <GlobalStatCard label="Rounds Played" value={String(stats.totalRounds)} />
+          <GlobalStatCard label="Unique Traders" value={String(stats.uniqueWallets)} />
+          <GlobalStatCard label="UP Win Rate" value={`${stats.resolvedRounds > 0 ? ((stats.upWins / stats.resolvedRounds) * 100).toFixed(0) : 0}%`} />
+        </div>
+      )}
 
       {/* Stats bar */}
       <div className="flex items-center gap-4 text-xs text-zinc-500">

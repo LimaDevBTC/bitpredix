@@ -651,7 +651,13 @@ export function MarketCardV4() {
                         step="1"
                         placeholder="0"
                         value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === '' || tokenBalance <= 0) { setAmount(v); return }
+                          const n = parseFloat(v)
+                          if (!isNaN(n) && n > tokenBalance) { setAmount(String(Math.floor(tokenBalance))); return }
+                          setAmount(v)
+                        }}
                         disabled={!inputsEnabled}
                         className="w-full font-mono pl-5 pr-1 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-100 text-xs sm:text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-bitcoin/50 focus:border-bitcoin disabled:opacity-40 disabled:cursor-not-allowed"
                       />
@@ -661,12 +667,11 @@ export function MarketCardV4() {
                         key={d}
                         type="button"
                         disabled={!inputsEnabled}
-                        onClick={() => setAmount(String(d))}
-                        className={`flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition disabled:opacity-40 disabled:cursor-not-allowed ${
-                          amount === String(d)
-                            ? 'bg-bitcoin/30 text-bitcoin border border-bitcoin/50'
-                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                        }`}
+                        onClick={() => {
+                          const next = (parseFloat(amount) || 0) + d
+                          setAmount(String(tokenBalance > 0 ? Math.min(next, Math.floor(tokenBalance)) : next))
+                        }}
+                        className="flex-1 sm:flex-none min-w-0 sm:px-3 py-2 rounded-lg font-mono text-xs transition disabled:opacity-40 disabled:cursor-not-allowed bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
                       >
                         ${d}
                       </button>

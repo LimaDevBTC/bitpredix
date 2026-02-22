@@ -92,12 +92,15 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           borderColor: 'rgba(255, 255, 255, 0.06)',
           timeVisible: true,
           secondsVisible: true,
-          rightOffset: 40,
+          rightOffset: containerRef.current.clientWidth < 640 ? 15 : 40,
           barSpacing: 1,
         },
         rightPriceScale: {
           borderColor: 'rgba(255, 255, 255, 0.06)',
-          scaleMargins: { top: 0.15, bottom: 0.15 },
+          scaleMargins: {
+            top: containerRef.current.clientWidth < 640 ? 0.10 : 0.15,
+            bottom: containerRef.current.clientWidth < 640 ? 0.10 : 0.15,
+          },
         },
         handleScroll: false,
         handleScale: false,
