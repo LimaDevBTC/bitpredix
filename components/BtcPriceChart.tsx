@@ -67,7 +67,7 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           background: { type: ColorType.Solid, color: 'transparent' },
           textColor: '#71717a',
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-          fontSize: 9,
+          fontSize: containerRef.current.clientWidth < 640 ? 7 : 9,
         },
         grid: {
           vertLines: { visible: false },
@@ -92,15 +92,12 @@ export default function BtcPriceChart({ data, openPrice }: BtcPriceChartProps) {
           borderColor: 'rgba(255, 255, 255, 0.06)',
           timeVisible: true,
           secondsVisible: true,
-          rightOffset: containerRef.current.clientWidth < 640 ? 15 : 40,
+          rightOffset: 40,
           barSpacing: 1,
         },
         rightPriceScale: {
           borderColor: 'rgba(255, 255, 255, 0.06)',
-          scaleMargins: {
-            top: containerRef.current.clientWidth < 640 ? 0.10 : 0.15,
-            bottom: containerRef.current.clientWidth < 640 ? 0.10 : 0.15,
-          },
+          scaleMargins: { top: 0.15, bottom: 0.15 },
         },
         handleScroll: false,
         handleScale: false,
