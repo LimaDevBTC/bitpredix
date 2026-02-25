@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import { Outfit, JetBrains_Mono } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import { AppHeader } from '@/components/AppHeader'
 import './globals.css'
 
@@ -56,6 +58,8 @@ export default function RootLayout({
       <body className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased">
         <AppHeader />
         {children}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
