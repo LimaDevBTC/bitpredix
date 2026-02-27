@@ -212,7 +212,19 @@ export function MarketCardV4() {
   }, [roundId])
 
   // Estado de allowance (verifica no blockchain via API)
-  const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(null)
+  // Inicializa do cache para evitar flash do overlay de approval em page reload
+  const [tradingEnabled, setTradingEnabled] = useState<boolean | null>(() => {
+    if (typeof localStorage === 'undefined') return null
+    try {
+      const data = getLocalStorage()
+      const addr = data?.addresses?.stx?.[0]?.address
+      if (addr) {
+        const cacheKey = `bitpredix_trading_enabled_${addr}_${BITPREDIX_CONTRACT}`
+        if (localStorage.getItem(cacheKey) === 'true') return true
+      }
+    } catch {}
+    return null
+  })
   const [checkingAllowance, setCheckingAllowance] = useState(false)
   const [tokenBalance, setTokenBalance] = useState(0) // USD (already divided by 1e6)
   const [canMint, setCanMint] = useState(false)
@@ -699,7 +711,7 @@ export function MarketCardV4() {
 
         {/* Trading Controls */}
         {(() => {
-          const needsApproval = stxAddress && !checkingAllowance && tradingEnabled !== true
+          const needsApproval = stxAddress && !checkingAllowance && tradingEnabled === false
           const isChecking = stxAddress && checkingAllowance
           const needsMint = stxAddress && tradingEnabled === true && tokenBalance === 0 && canMint
           const showOverlay = needsApproval || isChecking || needsMint
