@@ -4,12 +4,12 @@
 console.log('🔥 ClaimButton LOADED - version v2024-02-04-A 🔥')
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { uintCV, standardPrincipalCV, stringAsciiCV, cvToJSON, hexToCV, cvToHex, PostConditionMode } from '@stacks/transactions'
+import { getLocalStorage, isConnected } from '@stacks/connect'
+import { uintCV, standardPrincipalCV, stringAsciiCV, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 import { getRoundPrices } from '@/lib/pyth'
+import { sponsoredContractCall, getSavedPublicKey } from '@/lib/sponsored-tx'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv1'
-const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
 const MAX_CLAIMS_PER_TX = 10
 const STACKS_API_BASE = 'https://api.testnet.hiro.so'
 
@@ -281,31 +281,25 @@ export function ClaimButton() {
             setClaimProgress(`Enviando claim ${processed} de ${totalBets}...`)
 
             try {
-              const txId = await new Promise<string>((resolve, reject) => {
-                openContractCall({
-                  contractAddress: contractAddr,
-                  contractName: contractName,
-                  functionName: 'claim-round-side',
-                  functionArgs: [
-                    uintCV(round.roundId),
-                    stringAsciiCV(bet.side),
-                    uintCV(prices.priceStart),
-                    uintCV(prices.priceEnd)
-                  ],
-                  postConditionMode: PostConditionMode.Allow,
-                  network: 'testnet',
-                  onFinish: (data) => {
-                    console.log(`[ClaimButton] Claim tx submitted (round ${round.roundId} ${bet.side}):`, data.txId)
-                    resolve(data.txId)
-                  },
-                  onCancel: () => {
-                    reject(new Error('Transaction cancelled by user'))
-                  }
-                })
+              const publicKey = getSavedPublicKey()
+              if (!publicKey) throw new Error('Public key not found. Please reconnect wallet.')
+
+              const txId = await sponsoredContractCall({
+                contractAddress: contractAddr,
+                contractName: contractName,
+                functionName: 'claim-round-side',
+                functionArgs: [
+                  uintCV(round.roundId),
+                  stringAsciiCV(bet.side),
+                  uintCV(prices.priceStart),
+                  uintCV(prices.priceEnd)
+                ],
+                publicKey,
               })
+              console.log(`[ClaimButton] Claim tx sponsored (round ${round.roundId} ${bet.side}):`, txId)
 
               // Espera tx entrar no mempool antes de enviar a proxima
-              // (evita nonce collision no Stacks)
+              // (evita nonce collision do sponsor)
               if (processed < totalBets) {
                 setClaimProgress(`Aguardando tx ${txId.slice(0, 10)}... no mempool...`)
                 const found = await waitForTxInMempool(txId)

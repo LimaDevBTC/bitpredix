@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getLocalStorage, openContractCall, isConnected } from '@stacks/connect'
-import { uintCV, contractPrincipalCV, stringAsciiCV, Pc } from '@stacks/transactions'
+import { getLocalStorage, isConnected, request } from '@stacks/connect'
+import { uintCV, contractPrincipalCV, stringAsciiCV } from '@stacks/transactions'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import dynamic from 'next/dynamic'
@@ -13,6 +13,7 @@ const BtcPriceChart = dynamic(() => import('./BtcPriceChart'), {
   loading: () => <div className="w-full h-[220px] sm:h-[280px] lg:h-[320px] rounded-xl bg-zinc-900/50 animate-pulse" />,
 })
 import { usePythPrice } from '@/lib/pyth'
+import { sponsoredContractCall, getSavedPublicKey, savePublicKey } from '@/lib/sponsored-tx'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv1'
 const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
@@ -48,6 +49,15 @@ function getCurrentRoundInfo(): RoundInfo {
   }
 }
 
+interface RoundResult {
+  roundId: number
+  betUp: number
+  betDown: number
+  outcome: 'UP' | 'DOWN'
+  openPrice: number
+  closePrice: number
+}
+
 interface PoolData {
   totalUp: number    // USD in UP pool
   totalDown: number  // USD in DOWN pool
@@ -65,6 +75,8 @@ export function MarketCardV4() {
   const [btcPriceHistory, setBtcPriceHistory] = useState<BtcPricePoint[]>([])
   const [pool, setPool] = useState<PoolData | null>(null)
   const [recentRounds, setRecentRounds] = useState<{ id: string; outcome: 'UP' | 'DOWN' }[]>([])
+  const [roundResult, setRoundResult] = useState<RoundResult | null>(null)
+  const roundBetsRef = useRef(roundBets)
 
   const roundId = round?.id ?? null
   const lastRoundIdRef = useRef<number | null>(null)
@@ -78,8 +90,22 @@ export function MarketCardV4() {
     const updateRound = () => {
       const newRound = getCurrentRoundInfo()
 
-      // Se mudou de round, reseta apostas mas mantém gráfico contínuo
+      // Se mudou de round, captura resultado e reseta
       if (lastRoundIdRef.current !== newRound.id) {
+        // Capture round result before resetting
+        const prevBets = roundBetsRef.current
+        const prevOpenPrice = openPriceRef.current
+        if (prevBets && (prevBets.up > 0 || prevBets.down > 0) && prevOpenPrice && currentPrice) {
+          setRoundResult({
+            roundId: prevBets.roundId,
+            betUp: prevBets.up,
+            betDown: prevBets.down,
+            outcome: currentPrice > prevOpenPrice ? 'UP' : 'DOWN',
+            openPrice: prevOpenPrice,
+            closePrice: currentPrice,
+          })
+        }
+
         lastRoundIdRef.current = newRound.id
         openPriceRef.current = currentPrice
         setRoundBets(null)
@@ -101,6 +127,16 @@ export function MarketCardV4() {
     const interval = setInterval(updateRound, 1000)
     return () => clearInterval(interval)
   }, [currentPrice])
+
+  // Keep roundBetsRef in sync for round transition capture
+  useEffect(() => { roundBetsRef.current = roundBets }, [roundBets])
+
+  // Auto-dismiss round result after 5s
+  useEffect(() => {
+    if (!roundResult) return
+    const timer = setTimeout(() => setRoundResult(null), 5000)
+    return () => clearTimeout(timer)
+  }, [roundResult])
 
   // Poll pool data from blockchain every 8s
   useEffect(() => {
@@ -301,6 +337,20 @@ export function MarketCardV4() {
     })
   }, [currentPrice, round])
 
+  // Helper para obter publicKey com fallback
+  async function requirePublicKey(): Promise<string> {
+    const saved = getSavedPublicKey()
+    if (saved) return saved
+    // Fallback: pedir para a wallet (pode abrir popup)
+    const res = await request('stx_getAddresses', { network: 'testnet' })
+    const entry = (res as any)?.addresses?.find(
+      (a: any) => a.address?.startsWith('ST') || a.address?.startsWith('SP')
+    )
+    if (!entry?.publicKey) throw new Error('Could not get public key from wallet. Please reconnect.')
+    savePublicKey(entry.publicKey)
+    return entry.publicKey
+  }
+
   // Habilita trading (approve de valor alto, uma vez só)
   const enableTrading = async () => {
     if (!stxAddress) {
@@ -320,26 +370,20 @@ export function MarketCardV4() {
     }
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        openContractCall({
-          contractAddress: tokenAddr,
-          contractName: tokenName,
-          functionName: 'approve',
-          functionArgs: [
-            contractPrincipalCV(bitpredixAddr, bitpredixName),
-            uintCV(MAX_APPROVE_AMOUNT)
-          ],
-          network: 'testnet',
-          onFinish: () => {
-            // Salva no localStorage como cache imediato
-            const key = `bitpredix_trading_enabled_${stxAddress}_${BITPREDIX_CONTRACT}`
-            localStorage.setItem(key, 'true')
-            setTradingEnabled(true)
-            resolve()
-          },
-          onCancel: () => reject(new Error('Cancelled'))
-        })
+      const publicKey = await requirePublicKey()
+      await sponsoredContractCall({
+        contractAddress: tokenAddr,
+        contractName: tokenName,
+        functionName: 'approve',
+        functionArgs: [
+          contractPrincipalCV(bitpredixAddr, bitpredixName),
+          uintCV(MAX_APPROVE_AMOUNT)
+        ],
+        publicKey,
       })
+      const key = `bitpredix_trading_enabled_${stxAddress}_${BITPREDIX_CONTRACT}`
+      localStorage.setItem(key, 'true')
+      setTradingEnabled(true)
     } catch (e) {
       if (e instanceof Error && e.message !== 'Cancelled') {
         setError(e.message)
@@ -359,22 +403,17 @@ export function MarketCardV4() {
     setMintingTokens(true)
     setError(null)
     try {
-      await new Promise<void>((resolve, reject) => {
-        openContractCall({
-          contractAddress: tokenAddr,
-          contractName: tokenName,
-          functionName: 'mint',
-          functionArgs: [],
-          network: 'testnet',
-          onFinish: () => {
-            mintSubmittedRef.current = Date.now()
-            setCanMint(false)
-            window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
-            resolve()
-          },
-          onCancel: () => reject(new Error('Cancelled'))
-        })
+      const publicKey = await requirePublicKey()
+      await sponsoredContractCall({
+        contractAddress: tokenAddr,
+        contractName: tokenName,
+        functionName: 'mint',
+        functionArgs: [],
+        publicKey,
       })
+      mintSubmittedRef.current = Date.now()
+      setCanMint(false)
+      window.dispatchEvent(new CustomEvent('bitpredix:balance-changed'))
     } catch (e) {
       if (e instanceof Error && e.message !== 'Cancelled') {
         setError(e.message)
@@ -424,42 +463,19 @@ export function MarketCardV4() {
     const amountMicro = Math.round(v * 1e6) // 6 decimais
 
     try {
-      // Post-condition: usuário envia no máximo amountMicro de test-usdcx
-      // Pc namespace pode falhar no bundler (mesmo bug do Cl), então usamos try-catch
-      const [tokenAddr, tokenName] = TOKEN_CONTRACT.split('.')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let postConditions: any[] = []
-      try {
-        if (tokenAddr && tokenName) {
-          postConditions = [
-            Pc.principal(stxAddress)
-              .willSendLte(amountMicro)
-              .ft(`${tokenAddr}.${tokenName}`, 'test-usdcx')
-          ]
-        }
-      } catch (pcError) {
-        console.warn('[MarketCardV4] Post-condition builder failed, proceeding without:', pcError)
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        openContractCall({
-          contractAddress: bpAddr,
-          contractName: bpName,
-          functionName: 'place-bet',
-          functionArgs: [
-            uintCV(round.id),
-            stringAsciiCV(side),
-            uintCV(amountMicro)
-          ],
-          postConditions,
-          network: 'testnet',
-          onFinish: (data) => {
-            console.log('Bet placed:', data.txId)
-            resolve()
-          },
-          onCancel: () => reject(new Error('Cancelled'))
-        })
+      const publicKey = await requirePublicKey()
+      const txid = await sponsoredContractCall({
+        contractAddress: bpAddr,
+        contractName: bpName,
+        functionName: 'place-bet',
+        functionArgs: [
+          uintCV(round.id),
+          stringAsciiCV(side),
+          uintCV(amountMicro)
+        ],
+        publicKey,
       })
+      console.log('Bet sponsored & broadcast:', txid)
 
       // Sucesso — acumula apostas no round atual
       const prevBets = (roundBets?.roundId === round.id) ? roundBets : { roundId: round.id, up: 0, down: 0 }
@@ -561,7 +577,57 @@ export function MarketCardV4() {
         {/* Mensagens */}
         <div className="h-16 mb-3 flex items-stretch">
           <div className="w-full flex items-center">
-            {error ? (
+            {roundResult ? (
+              <div
+                className={`w-full h-full px-4 rounded-lg text-sm flex items-center justify-between gap-2 ${
+                  (() => {
+                    const won = roundResult.outcome === 'UP' ? roundResult.betUp : roundResult.betDown
+                    const lost = roundResult.outcome === 'UP' ? roundResult.betDown : roundResult.betUp
+                    if (won > 0 && lost === 0) return 'bg-up/10 border border-up/30'
+                    if (won > 0) return 'bg-amber-500/10 border border-amber-500/30'
+                    return 'bg-down/10 border border-down/30'
+                  })()
+                }`}
+                style={{ animation: 'fadeIn 0.3s ease-out' }}
+              >
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className={`text-base font-bold shrink-0 ${roundResult.outcome === 'UP' ? 'text-up' : 'text-down'}`}>
+                    {roundResult.outcome === 'UP' ? '\u25B2' : '\u25BC'}
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                    {roundResult.betUp > 0 && (
+                      <span className={`font-mono text-xs ${roundResult.outcome === 'UP' ? 'text-up font-semibold' : 'text-zinc-500'}`}>
+                        {roundResult.outcome === 'UP' ? '\u2713' : '\u2717'}${roundResult.betUp} UP
+                      </span>
+                    )}
+                    {roundResult.betUp > 0 && roundResult.betDown > 0 && <span className="text-zinc-600">|</span>}
+                    {roundResult.betDown > 0 && (
+                      <span className={`font-mono text-xs ${roundResult.outcome === 'DOWN' ? 'text-down font-semibold' : 'text-zinc-500'}`}>
+                        {roundResult.outcome === 'DOWN' ? '\u2713' : '\u2717'}${roundResult.betDown} DN
+                      </span>
+                    )}
+                    <span className="text-zinc-600">·</span>
+                    <span className={`font-mono text-xs ${roundResult.outcome === 'UP' ? 'text-up' : 'text-down'}`}>
+                      {roundResult.outcome === 'UP' ? '+' : '-'}${Math.abs(roundResult.closePrice - roundResult.openPrice).toFixed(2)}
+                    </span>
+                    <span className="text-zinc-600">·</span>
+                    {(() => {
+                      const won = roundResult.outcome === 'UP' ? roundResult.betUp : roundResult.betDown
+                      const lost = roundResult.outcome === 'UP' ? roundResult.betDown : roundResult.betUp
+                      if (won > 0 && lost === 0) return <span className="text-up font-bold text-xs">Won!</span>
+                      if (won > 0) return <span className="text-amber-400 font-semibold text-xs">Partial win</span>
+                      return <span className="text-down font-medium text-xs">Lost</span>
+                    })()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setRoundResult(null)}
+                  className="px-2 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 text-xs shrink-0 transition"
+                >
+                  OK
+                </button>
+              </div>
+            ) : error ? (
               <div className="w-full h-full px-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between gap-2">
                 <span className="flex-1">{error}</span>
                 <button

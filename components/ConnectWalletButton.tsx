@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { connect, disconnect, getLocalStorage, isConnected, request } from '@stacks/connect'
+import { bytesToHex, utf8ToBytes } from '@stacks/common'
 
 const STORAGE_KEY = '@stacks/connect'
 
@@ -17,7 +18,14 @@ function truncateAddress(addr: string, head = 6, tail = 4): string {
  */
 async function doConnect(): Promise<void> {
   try {
-    await connect({ forceWalletSelect: true })
+    const res = await connect({ forceWalletSelect: true })
+    // Capturar publicKey se disponivel
+    const stxEntry = (res as any)?.addresses?.find(
+      (a: any) => a.address?.startsWith('SP') || a.address?.startsWith('ST')
+    )
+    if (stxEntry?.publicKey) {
+      localStorage.setItem('stx_public_key', stxEntry.publicKey)
+    }
     return
   } catch {
     // Xverse: getAddresses com suporte parcial; stx_getAccounts é suportado.
@@ -31,13 +39,20 @@ async function doConnect(): Promise<void> {
     (a) => typeof a?.address === 'string' && (a.address.startsWith('SP') || a.address.startsWith('ST'))
   )
   if (!stx?.address) throw new Error('Nenhum endereço STX devolvido')
+
+  // Salvar publicKey do stx_getAccounts
+  if (stx.publicKey) {
+    localStorage.setItem('stx_public_key', stx.publicKey)
+  }
+
   const data = {
     addresses: { stx: [{ address: stx.address }], btc: [] as { address: string }[] },
     version: '1',
     updatedAt: Date.now(),
   }
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    // @stacks/connect v8 getLocalStorage() expects hex-encoded JSON
+    localStorage.setItem(STORAGE_KEY, bytesToHex(utf8ToBytes(JSON.stringify(data))))
   }
 }
 
@@ -111,6 +126,7 @@ export function ConnectWalletButton() {
   const handleDisconnect = () => {
     setDropdownOpen(false)
     disconnect()
+    localStorage.removeItem('stx_public_key')
     setStxAddress(null)
     setError(null)
     window.dispatchEvent(new CustomEvent('bitpredix:wallet-disconnected'))
