@@ -188,7 +188,7 @@ export function ResolutionModal({ round, onClose }: ResolutionModalProps) {
             </div>
           ) : (
             <div className="mb-6 py-4 text-center">
-              <p className="text-sm text-zinc-500">You didn&apos;t trade in this round</p>
+              <p className="text-sm text-zinc-500">You didn&apos;t predict in this round</p>
             </div>
           )}
 

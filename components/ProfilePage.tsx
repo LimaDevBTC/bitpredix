@@ -525,7 +525,7 @@ export default function ProfilePage({ address }: { address: string }) {
                 subtext={`${stats.totalBets} predictions`}
               />
               <StatCard
-                label="Avg Bet"
+                label="Avg Prediction"
                 value={`$${formatUsd(stats.avgBetSize)}`}
               />
               <StatCard

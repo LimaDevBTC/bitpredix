@@ -27,7 +27,7 @@ const SORT_OPTIONS: { key: SortBy; label: string }[] = [
   { key: 'volume', label: 'Volume' },
   { key: 'winRate', label: 'Win Rate' },
   { key: 'roi', label: 'ROI' },
-  { key: 'totalBets', label: 'Bets' },
+  { key: 'totalBets', label: 'Predictions' },
 ]
 
 // ============================================================================
@@ -171,7 +171,7 @@ export default function LeaderboardTable() {
         <div className="mb-6">
           <h1 className="text-zinc-200 font-semibold text-lg sm:text-xl">Leaderboard</h1>
           <p className="text-zinc-500 text-xs mt-1">
-            Top traders ranked by performance. Click any trader to view their full profile.
+            Top predictors ranked by performance. Click any predictor to view their full profile.
           </p>
         </div>
 
@@ -225,7 +225,7 @@ export default function LeaderboardTable() {
           <span className="ml-auto text-[11px] text-zinc-600">
             {debouncedSearch
               ? `${total} result${total !== 1 ? 's' : ''}`
-              : `${total} trader${total !== 1 ? 's' : ''}`
+              : `${total} predictor${total !== 1 ? 's' : ''}`
             }
           </span>
         </div>
@@ -242,8 +242,8 @@ export default function LeaderboardTable() {
           {/* Desktop header */}
           <div className="hidden sm:grid grid-cols-[2.5rem_1fr_3.5rem_5.5rem_5.5rem_3.5rem_5.5rem_4rem] gap-2 px-4 py-2.5 text-[10px] text-zinc-600 font-medium uppercase tracking-wider border-b border-zinc-800/50">
             <span>#</span>
-            <span>Trader</span>
-            <span className="text-right">Bets</span>
+            <span>Predictor</span>
+            <span className="text-right">Predictions</span>
             <span className="text-right">Volume</span>
             <span className="text-right">W / L</span>
             <span className="text-right">Win%</span>
@@ -266,14 +266,14 @@ export default function LeaderboardTable() {
           {/* Empty state */}
           {!loading && entries.length === 0 && !error && !debouncedSearch && (
             <div className="text-center py-16 text-zinc-600 text-sm">
-              No traders found yet. Place the first prediction!
+              No predictors found yet. Place the first prediction!
             </div>
           )}
           {!loading && entries.length === 0 && !error && debouncedSearch && (
             <div className="text-center py-12 text-zinc-600 text-sm">
               {debouncedSearch.trim().length >= 30 ? (
                 <>
-                  <p className="mb-3">No trader found matching this address.</p>
+                  <p className="mb-3">No predictor found matching this address.</p>
                   <Link
                     href={`/profile/${debouncedSearch.trim()}`}
                     className="inline-flex items-center gap-1.5 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-lg transition-colors"
@@ -285,7 +285,7 @@ export default function LeaderboardTable() {
                   </Link>
                 </>
               ) : (
-                <p>No traders matching &ldquo;{debouncedSearch}&rdquo;</p>
+                <p>No predictors matching &ldquo;{debouncedSearch}&rdquo;</p>
               )}
             </div>
           )}
@@ -308,7 +308,7 @@ export default function LeaderboardTable() {
                     {shortenAddress(entry.address)}
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-0.5">
-                    <span>{entry.totalBets} bets</span>
+                    <span>{entry.totalBets} predictions</span>
                     <span>{(entry.winRate * 100).toFixed(0)}%</span>
                   </div>
                 </div>

@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     'Predict if Bitcoin goes UP or DOWN in the next 60 seconds. On-chain prediction market powered by Stacks.',
   metadataBase: new URL(SITE_URL),
   applicationName: 'Predix',
-  keywords: ['bitcoin', 'prediction market', 'crypto', 'stacks', 'btc', 'trading', 'on-chain'],
+  keywords: ['bitcoin', 'prediction market', 'crypto', 'stacks', 'btc', 'predictions', 'on-chain'],
   authors: [{ name: 'Predix' }],
   creator: 'Predix',
   openGraph: {
