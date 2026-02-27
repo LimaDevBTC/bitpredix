@@ -9,6 +9,9 @@ const ROUND_DURATION_MS = 60 * 1000
 const HIRO_TESTNET = 'https://api.testnet.hiro.so'
 const BITPREDIX_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
 
+// Virtual seed liquidity for display pricing (must match frontend constant)
+const VIRTUAL_SEED = 500 * 1e6 // $500 in micro-units (6 decimals)
+
 function roundToJson(r: { id: string; startAt: number; endsAt: number; tradingClosesAt?: number; priceAtStart: number; priceAtEnd?: number; outcome?: string; status: string; pool: object }) {
   const endsAt = r.startAt + ROUND_DURATION_MS
   return {
@@ -92,9 +95,9 @@ export async function GET() {
             volumeTraded: (totalUp + totalDown) / 1e6,
           } as { qUp: number; qDown: number; volumeTraded: number },
         }
-        const pu = totalUp + totalDown > 0
-          ? totalUp / (totalUp + totalDown)
-          : 0.5
+        const effUp = VIRTUAL_SEED + totalUp
+        const effDown = VIRTUAL_SEED + totalDown
+        const pu = effUp / (effUp + effDown)
         const pd = 1 - pu
         return NextResponse.json({
           round: roundToJson(round),

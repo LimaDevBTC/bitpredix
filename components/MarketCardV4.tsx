@@ -25,6 +25,22 @@ const ROUND_DURATION_MS = 60 * 1000  // 60 segundos
 const TRADING_WINDOW_MS = 55 * 1000  // Trading fecha 5s antes do fim do round
 const MIN_BET_USD = 1
 
+// Virtual seed liquidity — prevents cold-start pricing distortion.
+// With SEED=500, a $1 bet moves price ~0.1%, $100 moves ~5%, $1000 moves ~25%.
+// This is purely cosmetic: payouts use real pool values only.
+const VIRTUAL_SEED_USD = 500
+
+/** Calculate display prices with virtual seed liquidity. */
+function calcSeededPrices(realUp: number, realDown: number) {
+  const effUp = VIRTUAL_SEED_USD + realUp
+  const effDown = VIRTUAL_SEED_USD + realDown
+  const total = effUp + effDown
+  return {
+    priceUp: effUp / total,
+    priceDown: effDown / total,
+  }
+}
+
 interface RoundInfo {
   id: number
   startAt: number
@@ -156,13 +172,8 @@ export function MarketCardV4() {
         setPool(prev => {
           const up = Math.max(qUp, prev?.totalUp ?? 0)
           const down = Math.max(qDown, prev?.totalDown ?? 0)
-          const total = up + down
-          return {
-            totalUp: up,
-            totalDown: down,
-            priceUp: total > 0 ? up / total : 0.5,
-            priceDown: total > 0 ? down / total : 0.5,
-          }
+          const { priceUp, priceDown } = calcSeededPrices(up, down)
+          return { totalUp: up, totalDown: down, priceUp, priceDown }
         })
       } catch { /* ignore */ }
     }
@@ -502,13 +513,8 @@ export function MarketCardV4() {
       setPool(prev => {
         const up = (prev?.totalUp ?? 0) + (side === 'UP' ? v : 0)
         const down = (prev?.totalDown ?? 0) + (side === 'DOWN' ? v : 0)
-        const total = up + down
-        return {
-          totalUp: up,
-          totalDown: down,
-          priceUp: total > 0 ? up / total : 0.5,
-          priceDown: total > 0 ? down / total : 0.5,
-        }
+        const { priceUp, priceDown } = calcSeededPrices(up, down)
+        return { totalUp: up, totalDown: down, priceUp, priceDown }
       })
 
       // Dispara evento para atualizar saldo em outros componentes
@@ -771,8 +777,8 @@ export function MarketCardV4() {
                   </div>
 
                   {(() => {
-                    const total = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
-                    const upPct = total > 0 ? ((pool?.totalUp ?? 0) / total) * 100 : 50
+                    const upPct = (pool?.priceUp ?? 0.5) * 100
+                    const realTotal = (pool?.totalUp ?? 0) + (pool?.totalDown ?? 0)
                     return (
                       <div className="space-y-1">
                         <div className="h-1.5 rounded-full overflow-hidden flex bg-zinc-800">
@@ -781,7 +787,7 @@ export function MarketCardV4() {
                         </div>
                         <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
                           <span>{Math.round(upPct)}% UP</span>
-                          <span>${total.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
+                          <span>${realTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })} pool</span>
                           <span>{Math.round(100 - upPct)}% DOWN</span>
                         </div>
                       </div>
