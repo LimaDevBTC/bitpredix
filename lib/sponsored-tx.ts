@@ -1,5 +1,5 @@
 import { request } from '@stacks/connect'
-import { makeUnsignedContractCall, ClarityValue } from '@stacks/transactions'
+import { makeUnsignedContractCall, ClarityValue, PostConditionMode } from '@stacks/transactions'
 
 const PUBLIC_KEY_STORAGE = 'stx_public_key'
 
@@ -38,6 +38,7 @@ export async function sponsoredContractCall(params: {
     network: 'testnet',
     fee: 0,
     sponsored: true,
+    postConditionMode: PostConditionMode.Allow,
   })
 
   const txHex = unsignedTx.serialize()
