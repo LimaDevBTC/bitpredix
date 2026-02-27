@@ -151,6 +151,7 @@ let lastScanTimestamp = 0
 let totalTxsIndexed = 0
 let scanInProgress = false
 let initialScanDone = false
+let activeScanPromise: Promise<void> | null = null
 
 // ============================================================================
 // PARSING HELPERS
@@ -376,12 +377,24 @@ async function enrichUnresolvedRounds(): Promise<void> {
 // ============================================================================
 
 async function scanContractTransactions(): Promise<void> {
-  if (scanInProgress) return
+  // If a scan is already running, wait for it instead of returning empty
+  if (activeScanPromise) return activeScanPromise
+
   const now = Date.now()
   if (initialScanDone && now - lastScanTimestamp < MIN_SCAN_INTERVAL_MS) return
 
   scanInProgress = true
+  activeScanPromise = doScan(now)
 
+  try {
+    await activeScanPromise
+  } finally {
+    activeScanPromise = null
+    scanInProgress = false
+  }
+}
+
+async function doScan(now: number): Promise<void> {
   try {
     const contractAddress = getContractAddress()
     let offset = 0
@@ -452,8 +465,6 @@ async function scanContractTransactions(): Promise<void> {
     initialScanDone = true
   } catch (e) {
     console.error('[round-indexer] Scan error:', e instanceof Error ? e.message : e)
-  } finally {
-    scanInProgress = false
   }
 }
 
@@ -782,7 +793,8 @@ export interface GlobalStats {
   avgPoolSize: number
 }
 
-export function getGlobalStats(): GlobalStats {
+export async function getGlobalStats(): Promise<GlobalStats> {
+  await scanContractTransactions()
   let totalVolume = 0
   let totalRounds = 0
   let resolvedRounds = 0

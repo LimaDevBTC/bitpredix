@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 
   // Global stats endpoint
   if (searchParams.get('stats') === 'global') {
-    return NextResponse.json({ ...getGlobalStats(), ok: true })
+    return NextResponse.json({ ...(await getGlobalStats()), ok: true })
   }
 
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
