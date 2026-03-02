@@ -185,6 +185,13 @@ export function MarketCardV4() {
     return () => clearTimeout(timer)
   }, [roundResult])
 
+  // Auto-dismiss errors after 6s
+  useEffect(() => {
+    if (!error) return
+    const timer = setTimeout(() => setError(null), 6000)
+    return () => clearTimeout(timer)
+  }, [error])
+
   // Poll pool data from blockchain every 8s
   useEffect(() => {
     if (!round) return
