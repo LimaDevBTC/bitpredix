@@ -128,34 +128,39 @@ export async function fetchCurrentPrice(): Promise<PythPrice> {
 // ============================================================================
 
 /**
- * Busca o preco em um timestamp especifico
- * Usa API proxy para evitar CORS
+ * Busca o preco em um timestamp especifico via Benchmarks (deterministico).
+ * Usa o close do ultimo candle disponivel ATE o timestamp pedido.
+ * NUNCA faz fallback para preco live (que varia por user).
  *
  * @param timestamp Unix timestamp em segundos
  * @returns Preco em USD
  */
 export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice> {
-  // Usa proxy local para evitar CORS
-  const url = `/api/pyth-price?timestamp=${timestamp}`
-
-  const response = await fetch(url)
+  // Busca candles que terminam ate o timestamp pedido
+  // Usa range amplo para garantir que existe pelo menos 1 candle completo
+  const response = await fetch(`/api/pyth-price?from=${timestamp - 300}&to=${timestamp}`)
   const data = await response.json()
 
   if (!response.ok || !data.ok) {
-    // Se nao tem dados historicos, tenta usar preco atual como fallback
-    // Isso permite testar mesmo com rounds muito recentes
     if (data.noData) {
-      console.warn(`[Pyth] No historical data for ${timestamp}, using current price as fallback`)
-      const current = await fetchCurrentPrice()
-      return current
+      throw new Error(`NO_HISTORICAL_DATA: No Benchmarks data for timestamp ${timestamp}`)
     }
     throw new Error(data.error || `Failed to fetch historical price: ${response.status}`)
   }
 
+  // Usa o close do ultimo candle no range (mais proximo do timestamp pedido)
+  const closes: number[] = data.close || []
+  const timestamps: number[] = data.timestamps || []
+
+  if (closes.length === 0) {
+    throw new Error(`NO_HISTORICAL_DATA: Empty candle data for timestamp ${timestamp}`)
+  }
+
+  const lastIdx = closes.length - 1
   return {
-    price: data.lastPrice,
+    price: closes[lastIdx],
     confidence: 0,
-    timestamp: data.lastTimestamp,
+    timestamp: timestamps[lastIdx],
     expo: 0
   }
 }

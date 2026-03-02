@@ -124,14 +124,10 @@ export function MarketCardV4() {
         }
 
         lastRoundIdRef.current = newRound.id
-        openPriceRef.current = currentPrice
+        openPriceRef.current = null // Nao usa preco live como placeholder — espera Benchmarks
+        fetchingOpenForRef.current = null // Permite novo fetch
         setRoundBets(null)
         setPool(null)
-      }
-
-      // Atualiza preco de abertura se ainda nao temos
-      if (!openPriceRef.current && currentPrice) {
-        openPriceRef.current = currentPrice
       }
 
       setRound({
@@ -146,23 +142,37 @@ export function MarketCardV4() {
   }, [currentPrice])
 
   // Fetch canonical open price from Pyth Benchmarks (deterministic across all devices)
-  // The live Pyth price is used as a temporary placeholder until the historical price arrives
+  // Uses the close of the last completed candle BEFORE round start — same for all users
   useEffect(() => {
     if (!roundId) return
     if (fetchingOpenForRef.current === roundId) return
     fetchingOpenForRef.current = roundId
+    let cancelled = false
 
     const roundStartTs = roundId * 60 // unix seconds
-    getPriceAtTimestamp(roundStartTs)
-      .then(pythPrice => {
-        if (fetchingOpenForRef.current === roundId && pythPrice.price) {
+
+    const fetchOpenPrice = async (attempt: number) => {
+      if (cancelled || fetchingOpenForRef.current !== roundId) return
+      try {
+        const pythPrice = await getPriceAtTimestamp(roundStartTs)
+        if (!cancelled && fetchingOpenForRef.current === roundId && pythPrice.price) {
           openPriceRef.current = pythPrice.price
           setRound(prev => prev ? { ...prev, priceAtStart: pythPrice.price } : prev)
         }
-      })
-      .catch(() => {
-        // Fallback: openPriceRef already has currentPrice as placeholder
-      })
+      } catch (e) {
+        // Benchmarks pode nao ter o candle ainda — retry ate 5x com delay crescente
+        if (!cancelled && attempt < 5) {
+          const delay = Math.min(2000 * (attempt + 1), 8000)
+          console.warn(`[OpenPrice] Attempt ${attempt + 1} failed for round ${roundId}, retrying in ${delay}ms`)
+          setTimeout(() => fetchOpenPrice(attempt + 1), delay)
+        } else {
+          console.error(`[OpenPrice] All attempts failed for round ${roundId}:`, e)
+        }
+      }
+    }
+
+    fetchOpenPrice(0)
+    return () => { cancelled = true }
   }, [roundId])
 
   // Keep roundBetsRef in sync for round transition capture
