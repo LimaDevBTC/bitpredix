@@ -148,7 +148,6 @@ export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice>
     throw new Error(data.error || `Failed to fetch historical price: ${response.status}`)
   }
 
-  // Usa o close do ultimo candle no range (mais proximo do timestamp pedido)
   const closes: number[] = data.close || []
   const timestamps: number[] = data.timestamps || []
 
@@ -156,11 +155,21 @@ export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice>
     throw new Error(`NO_HISTORICAL_DATA: Empty candle data for timestamp ${timestamp}`)
   }
 
-  const lastIdx = closes.length - 1
+  // Queremos o candle que FECHA em `timestamp` — seu open eh `timestamp - 60`
+  // Usar findClosestCandleIndex em vez de cegamente pegar o ultimo (que pode variar
+  // conforme Benchmarks publica novos candles entre refreshes)
+  const targetCandleOpen = timestamp - 60
+  const idx = findClosestCandleIndex(timestamps, targetCandleOpen)
+
+  // Se o candle mais proximo esta a mais de 30s do esperado, dados incompletos — retry
+  if (Math.abs(timestamps[idx] - targetCandleOpen) > 30) {
+    throw new Error(`NO_HISTORICAL_DATA: Expected candle at ~${targetCandleOpen}, closest is ${timestamps[idx]}`)
+  }
+
   return {
-    price: closes[lastIdx],
+    price: closes[idx],
     confidence: 0,
-    timestamp: timestamps[lastIdx],
+    timestamp: timestamps[idx],
     expo: 0
   }
 }

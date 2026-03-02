@@ -128,6 +128,15 @@ export function MarketCardV4() {
         fetchingOpenForRef.current = null // Permite novo fetch
         setRoundBets(null)
         setPool(null)
+
+        // Limpa cache de open prices antigos (mantém últimos 60 rounds = 1h)
+        try {
+          const keys = Object.keys(localStorage).filter(k => k.startsWith('openPrice_'))
+          if (keys.length > 60) {
+            keys.sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))
+            for (let i = 0; i < keys.length - 60; i++) localStorage.removeItem(keys[i])
+          }
+        } catch {}
       }
 
       setRound({
@@ -143,6 +152,7 @@ export function MarketCardV4() {
 
   // Fetch canonical open price from Pyth Benchmarks (deterministic across all devices)
   // Uses the close of the last completed candle BEFORE round start — same for all users
+  // Caches in localStorage so page refresh returns the same value
   useEffect(() => {
     if (!roundId) return
     if (fetchingOpenForRef.current === roundId) return
@@ -150,6 +160,20 @@ export function MarketCardV4() {
     let cancelled = false
 
     const roundStartTs = roundId * 60 // unix seconds
+    const cacheKey = `openPrice_${roundId}`
+
+    // Check localStorage cache first — prevents price changing on refresh
+    try {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        const cachedPrice = parseFloat(cached)
+        if (!isNaN(cachedPrice) && cachedPrice > 0) {
+          openPriceRef.current = cachedPrice
+          setRound(prev => prev ? { ...prev, priceAtStart: cachedPrice } : prev)
+          return // Already have deterministic price, skip fetch
+        }
+      }
+    } catch {}
 
     const fetchOpenPrice = async (attempt: number) => {
       if (cancelled || fetchingOpenForRef.current !== roundId) return
@@ -158,6 +182,8 @@ export function MarketCardV4() {
         if (!cancelled && fetchingOpenForRef.current === roundId && pythPrice.price) {
           openPriceRef.current = pythPrice.price
           setRound(prev => prev ? { ...prev, priceAtStart: pythPrice.price } : prev)
+          // Cache for page refresh stability
+          try { localStorage.setItem(cacheKey, String(pythPrice.price)) } catch {}
         }
       } catch (e) {
         // Benchmarks pode nao ter o candle ainda — retry ate 5x com delay crescente
