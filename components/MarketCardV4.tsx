@@ -12,7 +12,7 @@ const BtcPriceChart = dynamic(() => import('./BtcPriceChart'), {
   ssr: false,
   loading: () => <div className="w-full h-[220px] sm:h-[280px] lg:h-[320px] rounded-xl bg-zinc-900/50 animate-pulse" />,
 })
-import { usePythPrice } from '@/lib/pyth'
+import { usePythPrice, getPriceAtTimestamp } from '@/lib/pyth'
 import { sponsoredContractCall, getSavedPublicKey, savePublicKey } from '@/lib/sponsored-tx'
 
 const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv1'
@@ -97,6 +97,7 @@ export function MarketCardV4() {
   const roundId = round?.id ?? null
   const lastRoundIdRef = useRef<number | null>(null)
   const openPriceRef = useRef<number | null>(null)
+  const fetchingOpenForRef = useRef<number | null>(null)
 
   // Pyth price em tempo real
   const { price: currentPrice, loading: priceLoading } = usePythPrice()
@@ -143,6 +144,26 @@ export function MarketCardV4() {
     const interval = setInterval(updateRound, 1000)
     return () => clearInterval(interval)
   }, [currentPrice])
+
+  // Fetch canonical open price from Pyth Benchmarks (deterministic across all devices)
+  // The live Pyth price is used as a temporary placeholder until the historical price arrives
+  useEffect(() => {
+    if (!roundId) return
+    if (fetchingOpenForRef.current === roundId) return
+    fetchingOpenForRef.current = roundId
+
+    const roundStartTs = roundId * 60 // unix seconds
+    getPriceAtTimestamp(roundStartTs)
+      .then(pythPrice => {
+        if (fetchingOpenForRef.current === roundId && pythPrice.price) {
+          openPriceRef.current = pythPrice.price
+          setRound(prev => prev ? { ...prev, priceAtStart: pythPrice.price } : prev)
+        }
+      })
+      .catch(() => {
+        // Fallback: openPriceRef already has currentPrice as placeholder
+      })
+  }, [roundId])
 
   // Keep roundBetsRef in sync for round transition capture
   useEffect(() => { roundBetsRef.current = roundBets }, [roundBets])
