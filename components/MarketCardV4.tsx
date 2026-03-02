@@ -131,7 +131,7 @@ export function MarketCardV4() {
 
         // Limpa cache de open prices antigos (mantém últimos 60 rounds = 1h)
         try {
-          const keys = Object.keys(localStorage).filter(k => k.startsWith('openPrice_'))
+          const keys = Object.keys(localStorage).filter(k => k.startsWith('opv2_') || k.startsWith('openPrice_'))
           if (keys.length > 60) {
             keys.sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))
             for (let i = 0; i < keys.length - 60; i++) localStorage.removeItem(keys[i])
@@ -160,7 +160,7 @@ export function MarketCardV4() {
     let cancelled = false
 
     const roundStartTs = roundId * 60 // unix seconds
-    const cacheKey = `openPrice_${roundId}`
+    const cacheKey = `opv2_${roundId}`
 
     // Check localStorage cache first — prevents price changing on refresh
     try {

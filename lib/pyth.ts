@@ -136,7 +136,7 @@ export async function fetchCurrentPrice(): Promise<PythPrice> {
  * @returns Preco em USD
  */
 export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice> {
-  // Busca candles que terminam ate o timestamp pedido
+  // Busca candles ate o timestamp pedido
   // Usa range amplo para garantir que existe pelo menos 1 candle completo
   const response = await fetch(`/api/pyth-price?from=${timestamp - 300}&to=${timestamp}`)
   const data = await response.json()
@@ -148,16 +148,16 @@ export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice>
     throw new Error(data.error || `Failed to fetch historical price: ${response.status}`)
   }
 
-  const closes: number[] = data.close || []
+  const opens: number[] = data.open || []
   const timestamps: number[] = data.timestamps || []
 
-  if (closes.length === 0) {
+  if (opens.length === 0) {
     throw new Error(`NO_HISTORICAL_DATA: Empty candle data for timestamp ${timestamp}`)
   }
 
-  // Queremos o candle que FECHA em `timestamp` — seu open eh `timestamp - 60`
-  // Usar findClosestCandleIndex em vez de cegamente pegar o ultimo (que pode variar
-  // conforme Benchmarks publica novos candles entre refreshes)
+  // Queremos o candle que ABRE em `timestamp - 60` (cobre [timestamp-60, timestamp))
+  // Usamos o OPEN do candle (nao o close) porque o Pyth continua atualizando
+  // o close de candles recentes por varios segundos — o open eh fixo desde a publicacao.
   const targetCandleOpen = timestamp - 60
   const idx = findClosestCandleIndex(timestamps, targetCandleOpen)
 
@@ -167,7 +167,7 @@ export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice>
   }
 
   return {
-    price: closes[idx],
+    price: opens[idx],
     confidence: 0,
     timestamp: timestamps[idx],
     expo: 0
