@@ -159,9 +159,9 @@ export function MarketCardV4() {
         }
 
         lastRoundIdRef.current = newRound.id
-        // Use live price as immediate placeholder — server captures the canonical
-        // open price via instrumentation.ts and broadcasts it via SSE within ~1s.
-        openPriceRef.current = currentPrice ?? null
+        // Do NOT use the local Pyth price — it varies per device & timing.
+        // Set null and let SSE / fallback-fetch deliver the canonical server price.
+        openPriceRef.current = null
         fetchingOpenForRef.current = null
         setRoundBets(null)
         setPool(null)
@@ -190,19 +190,17 @@ export function MarketCardV4() {
     return () => clearInterval(interval)
   }, [currentPrice])
 
-  // Fallback: if we don't have an open price (page refresh mid-round),
-  // ask the SERVER for the canonical price. This guarantees all users see
-  // the exact same value — no Benchmarks involved.
-  useEffect(() => {
-    if (!roundId) return
+  // Fetch canonical open price from server whenever we don't have one.
+  // Runs on round change, page refresh, and tab resume.
+  const fetchCanonicalOpen = useCallback((rid: number) => {
+    if (!rid) return
     if (openPriceRef.current) return
-    if (fetchingOpenForRef.current === roundId) return
-    fetchingOpenForRef.current = roundId
-    let cancelled = false
+    if (fetchingOpenForRef.current === rid) return
+    fetchingOpenForRef.current = rid
 
-    const cacheKey = `opv3_${roundId}`
+    const cacheKey = `opv3_${rid}`
 
-    // Check localStorage cache first — set by live capture on this device
+    // Check localStorage cache first — set by SSE/server on this device
     try {
       const cached = localStorage.getItem(cacheKey)
       if (cached) {
@@ -215,29 +213,46 @@ export function MarketCardV4() {
       }
     } catch {}
 
-    // Ask server for canonical open price (set by the first client that saw the round transition)
+    // Ask server for canonical open price
     const fetchFromServer = async (attempt: number) => {
-      if (cancelled || fetchingOpenForRef.current !== roundId || openPriceRef.current) return
+      if (fetchingOpenForRef.current !== rid || openPriceRef.current) return
       try {
-        const res = await fetch(`/api/open-price?roundId=${roundId}`)
+        const res = await fetch(`/api/open-price?roundId=${rid}`)
         const data = await res.json()
-        if (cancelled || openPriceRef.current) return
+        if (openPriceRef.current) return
         if (data.price && typeof data.price === 'number' && data.price > 0) {
           openPriceRef.current = data.price
           try { localStorage.setItem(cacheKey, String(data.price)) } catch {}
           setRound(prev => prev ? { ...prev, priceAtStart: data.price } : prev)
-          return // done
+          return
         }
       } catch {}
-      // Server doesn't have it yet — retry (another client may POST it soon)
-      if (!cancelled && attempt < 8) {
+      // Server doesn't have it yet — retry
+      if (attempt < 8) {
         setTimeout(() => fetchFromServer(attempt + 1), 2000)
       }
     }
 
     fetchFromServer(0)
-    return () => { cancelled = true }
-  }, [roundId])
+  }, [])
+
+  useEffect(() => {
+    if (roundId) fetchCanonicalOpen(roundId)
+  }, [roundId, fetchCanonicalOpen])
+
+  // On tab resume: re-sync open price if we don't have it (SSE may have died)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      const rid = lastRoundIdRef.current
+      if (rid && !openPriceRef.current) {
+        fetchingOpenForRef.current = null // reset so fetchCanonicalOpen can retry
+        fetchCanonicalOpen(rid)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [fetchCanonicalOpen])
 
   // Keep refs in sync for round transition capture
   useEffect(() => { roundBetsRef.current = roundBets }, [roundBets])

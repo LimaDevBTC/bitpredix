@@ -16,7 +16,9 @@ export async function register() {
   const HERMES_URL = 'https://hermes.pyth.network'
   const PYTH_BTC_USD_FEED = 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43'
 
-  let lastRoundId = Math.floor(Date.now() / 60000)
+  // Start with previous round so we capture the CURRENT round's open price
+  // immediately on startup (covers server restart / HMR reload scenarios).
+  let lastRoundId = Math.floor(Date.now() / 60000) - 1
 
   // Check every second for round transitions
   setInterval(async () => {
