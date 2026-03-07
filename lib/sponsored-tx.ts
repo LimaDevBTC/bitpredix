@@ -16,6 +16,13 @@ export function savePublicKey(publicKey: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Nonce tracking — prevents ConflictingNonceInMempool when placing multiple
+// bets in rapid succession (before previous txs confirm on-chain).
+// ---------------------------------------------------------------------------
+const nonceTracker = new Map<string, { nonce: bigint; ts: number }>()
+const NONCE_TTL_MS = 120_000 // expire after 2 min (Stacks testnet blocks ~10-60s)
+
 /**
  * Constroi uma tx sponsored unsigned, pede a wallet para assinar,
  * e envia para /api/sponsor para sponsorar e broadcastar.
@@ -28,8 +35,15 @@ export async function sponsoredContractCall(params: {
   functionArgs: ClarityValue[]
   publicKey: string
 }): Promise<string> {
+  // Check for tracked nonce from a recent successful broadcast
+  const tracked = nonceTracker.get(params.publicKey)
+  const pendingNonce = (tracked && Date.now() - tracked.ts < NONCE_TTL_MS)
+    ? tracked.nonce
+    : undefined
+
   // 1. Construir tx unsigned com sponsored=true e fee=0
-  const unsignedTx = await makeUnsignedContractCall({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const txOptions: any = {
     contractAddress: params.contractAddress,
     contractName: params.contractName,
     functionName: params.functionName,
@@ -39,8 +53,12 @@ export async function sponsoredContractCall(params: {
     fee: 0,
     sponsored: true,
     postConditionMode: PostConditionMode.Allow,
-  })
+  }
+  if (pendingNonce !== undefined) {
+    txOptions.nonce = pendingNonce
+  }
 
+  const unsignedTx = await makeUnsignedContractCall(txOptions)
   const txHex = unsignedTx.serialize()
 
   // 2. Pedir a wallet para assinar via stx_signTransaction (SIP-030 direto)
@@ -75,7 +93,19 @@ export async function sponsoredContractCall(params: {
   const data = await res.json()
 
   if (!res.ok || data.error) {
+    // On failure, clear tracked nonce so next call re-fetches from network
+    nonceTracker.delete(params.publicKey)
     throw new Error(data.error || `Sponsor failed (${res.status})`)
+  }
+
+  // On success: track next expected nonce for this user
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const usedNonce = BigInt((unsignedTx.auth as any).spendingCondition?.nonce ?? 0)
+    nonceTracker.set(params.publicKey, { nonce: usedNonce + BigInt(1), ts: Date.now() })
+  } catch {
+    // If nonce extraction fails, clear tracker — next call will re-fetch
+    nonceTracker.delete(params.publicKey)
   }
 
   return data.txid

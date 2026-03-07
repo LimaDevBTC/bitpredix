@@ -36,8 +36,32 @@ async function getSponsorPrivateKey(): Promise<string> {
   return sponsorKeyCache
 }
 
+// ---------------------------------------------------------------------------
+// Sponsor nonce tracking — prevents ConflictingNonceInMempool when multiple
+// users (or same user) place bets before previous sponsored txs confirm.
+// Uses globalThis to survive Next.js HMR reloads in dev.
+// ---------------------------------------------------------------------------
+const g = globalThis as unknown as {
+  __sponsorNonce?: bigint | null
+  __sponsorNonceTs?: number
+  __sponsorLock?: Promise<void>
+}
+g.__sponsorNonce ??= null
+g.__sponsorNonceTs ??= 0
+g.__sponsorLock ??= Promise.resolve()
+
+const SPONSOR_NONCE_TTL_MS = 120_000 // 2 min
+
 export async function POST(req: NextRequest) {
+  // Serialize sponsor+broadcast to prevent concurrent nonce conflicts
+  let releaseLock: () => void = () => {}
+  const prevLock = g.__sponsorLock!
+  g.__sponsorLock = new Promise<void>(resolve => { releaseLock = resolve })
+
   try {
+    // Wait for any previous broadcast to finish
+    await prevLock
+
     const { txHex } = await req.json()
 
     if (!txHex || typeof txHex !== 'string') {
@@ -88,15 +112,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 3. Sponsora a transacao
+    // 3. Sponsora a transacao (with tracked nonce if available)
     const sponsorPrivateKey = await getSponsorPrivateKey()
 
-    const sponsoredTx = await sponsorTransaction({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sponsorOpts: any = {
       transaction,
       sponsorPrivateKey,
       fee: BigInt(50000), // 0.05 STX
       network: 'testnet',
-    })
+    }
+
+    // Use tracked sponsor nonce if recent enough
+    if (g.__sponsorNonce !== null && Date.now() - g.__sponsorNonceTs! < SPONSOR_NONCE_TTL_MS) {
+      sponsorOpts.sponsorNonce = g.__sponsorNonce
+    }
+
+    const sponsoredTx = await sponsorTransaction(sponsorOpts)
 
     // 4. Broadcasta
     const result = await broadcastTransaction({
@@ -107,18 +139,34 @@ export async function POST(req: NextRequest) {
     // v7: broadcastTransaction returns { txid } on success, or error object on failure
     if ('txid' in result) {
       console.log('[sponsor] Broadcast OK:', result.txid)
+
+      // Track next sponsor nonce
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const auth = sponsoredTx.auth as any
+        const usedNonce = BigInt(auth.sponsorSpendingCondition?.nonce ?? auth.sponsorCondition?.nonce ?? 0)
+        g.__sponsorNonce = usedNonce + BigInt(1)
+        g.__sponsorNonceTs = Date.now()
+      } catch {
+        g.__sponsorNonce = null
+      }
+
       return NextResponse.json({ txid: result.txid })
     }
 
-    // Error case
+    // Error case — clear tracked nonce
+    g.__sponsorNonce = null
     console.error('[sponsor] Broadcast failed:', result)
     return NextResponse.json(
       { error: (result as Record<string, unknown>).error ?? 'Broadcast failed', reason: (result as Record<string, unknown>).reason },
       { status: 400 }
     )
   } catch (err: unknown) {
+    g.__sponsorNonce = null
     console.error('[sponsor] Error:', err)
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })
+  } finally {
+    releaseLock()
   }
 }
