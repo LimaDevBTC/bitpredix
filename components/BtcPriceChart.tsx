@@ -16,8 +16,8 @@ interface BtcPriceChartProps {
 }
 
 // Smooth-damp time — how many seconds to approximately reach the target.
-// Higher = smoother/slower curves. 2s gives very organic, Polymarket-like motion.
-const SMOOTH_TIME = 2.0
+// 0.6s gives smooth organic curves while staying responsive to real price.
+const SMOOTH_TIME = 0.6
 // Interval between chart data point additions (ms) — controls X-axis smoothness
 // 50ms (~20fps) × 1px barSpacing = each tick shifts just 1px, imperceptible to the eye
 const DATA_TICK_MS = 50

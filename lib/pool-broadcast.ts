@@ -29,3 +29,27 @@ export function broadcastPoolUpdate(data: PoolUpdate) {
     try { cb(data) } catch {}
   }
 }
+
+// ============================================================================
+// Open price broadcast — propagates canonical open price to all SSE clients
+// ============================================================================
+
+export interface OpenPriceUpdate {
+  roundId: number
+  price: number
+}
+
+type OpenPriceCallback = (data: OpenPriceUpdate) => void
+
+const openPriceListeners = new Set<OpenPriceCallback>()
+
+export function subscribeOpenPrice(cb: OpenPriceCallback): () => void {
+  openPriceListeners.add(cb)
+  return () => { openPriceListeners.delete(cb) }
+}
+
+export function broadcastOpenPrice(data: OpenPriceUpdate) {
+  for (const cb of openPriceListeners) {
+    try { cb(data) } catch {}
+  }
+}

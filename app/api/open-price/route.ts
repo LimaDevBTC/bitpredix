@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { setOpenPrice, getOpenPrice } from '@/lib/pool-cache'
+import { broadcastOpenPrice } from '@/lib/pool-broadcast'
+
+export const dynamic = 'force-dynamic'
+
+/**
+ * POST /api/open-price — first client to detect a round transition
+ * sends its live Pyth price. Server stores it (first-write-wins) and
+ * broadcasts to all SSE clients so everyone uses the same open price.
+ *
+ * GET /api/open-price?roundId=N — returns the stored open price (if any).
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const { roundId, price } = await request.json()
+
+    if (typeof roundId !== 'number' || roundId <= 0) {
+      return NextResponse.json({ error: 'invalid roundId' }, { status: 400 })
+    }
+    if (typeof price !== 'number' || price <= 0) {
+      return NextResponse.json({ error: 'invalid price' }, { status: 400 })
+    }
+
+    const accepted = setOpenPrice(roundId, price)
+
+    if (accepted) {
+      // First write — broadcast to all SSE clients
+      broadcastOpenPrice({ roundId, price })
+    }
+
+    // Always return the canonical price (may differ from what was sent if another client was first)
+    const canonical = getOpenPrice(roundId)
+    return NextResponse.json({ ok: true, accepted, price: canonical })
+  } catch {
+    return NextResponse.json({ error: 'bad request' }, { status: 400 })
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const roundId = parseInt(request.nextUrl.searchParams.get('roundId') ?? '')
+  if (isNaN(roundId) || roundId <= 0) {
+    return NextResponse.json({ error: 'invalid roundId' }, { status: 400 })
+  }
+
+  const price = getOpenPrice(roundId)
+  return NextResponse.json({ ok: true, price })
+}

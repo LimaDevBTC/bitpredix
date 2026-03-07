@@ -360,8 +360,8 @@ export function usePythPrice(): UsePythPriceResult {
     // Busca inicial
     fetchPrice()
 
-    // Polling a cada 1 segundo
-    intervalRef.current = setInterval(fetchPrice, 1000)
+    // Polling a cada 500ms para menor latência
+    intervalRef.current = setInterval(fetchPrice, 500)
 
     return () => {
       if (intervalRef.current) {

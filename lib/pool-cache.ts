@@ -35,3 +35,26 @@ export function addOptimisticBet(roundId: number, side: 'UP' | 'DOWN', amountMic
 export function getOptimisticPool(roundId: number): RoundPool {
   return pools.get(roundId) ?? { up: 0, down: 0 }
 }
+
+// ============================================================================
+// Open price cache — first-write-wins per round
+// ============================================================================
+
+const openPrices = new Map<number, number>()
+
+/** Set open price for a round. Returns true if this was the first write (accepted). */
+export function setOpenPrice(roundId: number, price: number): boolean {
+  if (openPrices.has(roundId)) return false
+  openPrices.set(roundId, price)
+  // Evict old rounds (keep last 3)
+  if (openPrices.size > 3) {
+    const sorted = [...openPrices.keys()].sort((a, b) => a - b)
+    for (let i = 0; i < sorted.length - 3; i++) openPrices.delete(sorted[i])
+  }
+  return true
+}
+
+/** Get the canonical open price for a round, or null if not yet set. */
+export function getOpenPrice(roundId: number): number | null {
+  return openPrices.get(roundId) ?? null
+}

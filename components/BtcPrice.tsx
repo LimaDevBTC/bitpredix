@@ -1,10 +1,12 @@
 'use client'
 
-import { usePythPrice } from '@/lib/pyth'
+interface BtcPriceProps {
+  price: number | null
+  loading?: boolean
+  error?: string | null
+}
 
-export function BtcPrice() {
-  const { price, loading, error } = usePythPrice()
-
+export function BtcPrice({ price, loading, error }: BtcPriceProps) {
   if (loading && price == null) {
     return (
       <div className="font-mono text-2xl text-zinc-500 animate-pulse">

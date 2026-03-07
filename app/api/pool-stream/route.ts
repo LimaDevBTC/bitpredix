@@ -1,5 +1,5 @@
-import { subscribePoolUpdates } from '@/lib/pool-broadcast'
-import { getOptimisticPool } from '@/lib/pool-cache'
+import { subscribePoolUpdates, subscribeOpenPrice } from '@/lib/pool-broadcast'
+import { getOptimisticPool, getOpenPrice } from '@/lib/pool-cache'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -24,9 +24,20 @@ export async function GET(request: Request) {
       const pool = getOptimisticPool(currentRoundId)
       send({ type: 'snapshot', roundId: currentRoundId, totalUp: pool.up, totalDown: pool.down })
 
+      // Send current open price if already set (late joiners get it immediately)
+      const openPrice = getOpenPrice(currentRoundId)
+      if (openPrice !== null) {
+        send({ type: 'open-price', roundId: currentRoundId, price: openPrice })
+      }
+
       // Subscribe to live updates
       const unsub = subscribePoolUpdates((data) => {
         send({ type: 'pool-update', ...data })
+      })
+
+      // Subscribe to open price broadcasts
+      const unsubOpen = subscribeOpenPrice((data) => {
+        send({ type: 'open-price', ...data })
       })
 
       // Heartbeat every 25s to keep connection alive through proxies
@@ -37,6 +48,7 @@ export async function GET(request: Request) {
       // Cleanup when client disconnects
       request.signal.addEventListener('abort', () => {
         unsub()
+        unsubOpen()
         clearInterval(heartbeat)
         try { controller.close() } catch {}
       })

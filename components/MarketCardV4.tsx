@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getLocalStorage, isConnected, request } from '@stacks/connect'
 import { uintCV, contractPrincipalCV, stringAsciiCV } from '@stacks/transactions'
+import { TradeTape, type TradeTapeItem } from './TradeTape'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
 import dynamic from 'next/dynamic'
@@ -12,7 +13,7 @@ const BtcPriceChart = dynamic(() => import('./BtcPriceChart'), {
   ssr: false,
   loading: () => <div className="w-full h-[220px] sm:h-[280px] lg:h-[320px] rounded-xl bg-zinc-900/50 animate-pulse" />,
 })
-import { usePythPrice, getPriceAtTimestamp } from '@/lib/pyth'
+import { usePythPrice } from '@/lib/pyth'
 import { sponsoredContractCall, getSavedPublicKey, savePublicKey } from '@/lib/sponsored-tx'
 import confetti from 'canvas-confetti'
 
@@ -91,6 +92,8 @@ export function MarketCardV4() {
   const [pool, setPool] = useState<PoolData | null>(null)
   const [recentRounds, setRecentRounds] = useState<{ id: string; outcome: 'UP' | 'DOWN' }[]>([])
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null)
+  const [tradeTape, setTradeTape] = useState<TradeTapeItem[]>([])
+  const tradeTapeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const roundBetsRef = useRef(roundBets)
   const poolRef = useRef(pool)
   const clientIdRef = useRef(Math.random().toString(36).slice(2))
@@ -100,8 +103,18 @@ export function MarketCardV4() {
   const openPriceRef = useRef<number | null>(null)
   const fetchingOpenForRef = useRef<number | null>(null)
 
+  // Push a bet into the trade tape (auto-removes after 4s, max 5 visible)
+  const pushTradeTape = useCallback((side: 'UP' | 'DOWN', amount: number) => {
+    const item: TradeTapeItem = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), side, amount }
+    setTradeTape(prev => [...prev.slice(-4), item])
+    const timer = setTimeout(() => {
+      setTradeTape(prev => prev.filter(x => x.id !== item.id))
+    }, 4000)
+    tradeTapeTimersRef.current.push(timer)
+  }, [])
+
   // Pyth price em tempo real
-  const { price: currentPrice, loading: priceLoading } = usePythPrice()
+  const { price: currentPrice, loading: priceLoading, error: priceError } = usePythPrice()
 
   // Atualiza round a cada segundo
   useEffect(() => {
@@ -146,10 +159,15 @@ export function MarketCardV4() {
         }
 
         lastRoundIdRef.current = newRound.id
-        openPriceRef.current = null // Nao usa preco live como placeholder — espera Benchmarks
-        fetchingOpenForRef.current = null // Permite novo fetch
+        // Use live price as immediate placeholder — server captures the canonical
+        // open price via instrumentation.ts and broadcasts it via SSE within ~1s.
+        openPriceRef.current = currentPrice ?? null
+        fetchingOpenForRef.current = null
         setRoundBets(null)
         setPool(null)
+        setTradeTape([])
+        tradeTapeTimersRef.current.forEach(clearTimeout)
+        tradeTapeTimersRef.current = []
 
         // Limpa cache de open prices antigos (mantém últimos 60 rounds = 1h)
         try {
@@ -172,19 +190,19 @@ export function MarketCardV4() {
     return () => clearInterval(interval)
   }, [currentPrice])
 
-  // Fetch canonical open price from Pyth Benchmarks (deterministic across all devices)
-  // Uses the close of the last completed candle BEFORE round start — same for all users
-  // Caches in localStorage so page refresh returns the same value
+  // Fallback: if we don't have an open price (page refresh mid-round),
+  // ask the SERVER for the canonical price. This guarantees all users see
+  // the exact same value — no Benchmarks involved.
   useEffect(() => {
     if (!roundId) return
+    if (openPriceRef.current) return
     if (fetchingOpenForRef.current === roundId) return
     fetchingOpenForRef.current = roundId
     let cancelled = false
 
-    const roundStartTs = roundId * 60 // unix seconds
     const cacheKey = `opv3_${roundId}`
 
-    // Check localStorage cache first — prevents price changing on refresh
+    // Check localStorage cache first — set by live capture on this device
     try {
       const cached = localStorage.getItem(cacheKey)
       if (cached) {
@@ -192,34 +210,32 @@ export function MarketCardV4() {
         if (!isNaN(cachedPrice) && cachedPrice > 0) {
           openPriceRef.current = cachedPrice
           setRound(prev => prev ? { ...prev, priceAtStart: cachedPrice } : prev)
-          return // Already have deterministic price, skip fetch
+          return
         }
       }
     } catch {}
 
-    const fetchOpenPrice = async (attempt: number) => {
-      if (cancelled || fetchingOpenForRef.current !== roundId) return
+    // Ask server for canonical open price (set by the first client that saw the round transition)
+    const fetchFromServer = async (attempt: number) => {
+      if (cancelled || fetchingOpenForRef.current !== roundId || openPriceRef.current) return
       try {
-        const pythPrice = await getPriceAtTimestamp(roundStartTs)
-        if (!cancelled && fetchingOpenForRef.current === roundId && pythPrice.price) {
-          openPriceRef.current = pythPrice.price
-          setRound(prev => prev ? { ...prev, priceAtStart: pythPrice.price } : prev)
-          // Cache for page refresh stability
-          try { localStorage.setItem(cacheKey, String(pythPrice.price)) } catch {}
+        const res = await fetch(`/api/open-price?roundId=${roundId}`)
+        const data = await res.json()
+        if (cancelled || openPriceRef.current) return
+        if (data.price && typeof data.price === 'number' && data.price > 0) {
+          openPriceRef.current = data.price
+          try { localStorage.setItem(cacheKey, String(data.price)) } catch {}
+          setRound(prev => prev ? { ...prev, priceAtStart: data.price } : prev)
+          return // done
         }
-      } catch (e) {
-        // Benchmarks pode nao ter o candle ainda — retry ate 5x com delay crescente
-        if (!cancelled && attempt < 5) {
-          const delay = Math.min(2000 * (attempt + 1), 8000)
-          console.warn(`[OpenPrice] Attempt ${attempt + 1} failed for round ${roundId}, retrying in ${delay}ms`)
-          setTimeout(() => fetchOpenPrice(attempt + 1), delay)
-        } else {
-          console.error(`[OpenPrice] All attempts failed for round ${roundId}:`, e)
-        }
+      } catch {}
+      // Server doesn't have it yet — retry (another client may POST it soon)
+      if (!cancelled && attempt < 8) {
+        setTimeout(() => fetchFromServer(attempt + 1), 2000)
       }
     }
 
-    fetchOpenPrice(0)
+    fetchFromServer(0)
     return () => { cancelled = true }
   }, [roundId])
 
@@ -330,6 +346,18 @@ export function MarketCardV4() {
               const { priceUp, priceDown } = calcSeededPrices(up, down)
               return { totalUp: up, totalDown: down, priceUp, priceDown }
             })
+            // Show in trade tape
+            pushTradeTape(data.side, Math.round(delta))
+          } else if (data.type === 'open-price') {
+            // Canonical open price from server — same for ALL clients
+            const rid = data.roundId
+            if (rid !== lastRoundIdRef.current) return
+            const price = data.price
+            if (typeof price === 'number' && price > 0) {
+              openPriceRef.current = price
+              try { localStorage.setItem(`opv3_${rid}`, String(price)) } catch {}
+              setRound(prev => prev ? { ...prev, priceAtStart: price } : prev)
+            }
           }
         } catch {}
       }
@@ -677,6 +705,9 @@ export function MarketCardV4() {
       })
       setAmount('')
 
+      // Show own bet in trade tape (SSE echo is skipped via clientId)
+      pushTradeTape(side, Math.round(v))
+
       // Optimistic pool update — reflect bet instantly in UI
       setPool(prev => {
         const up = (prev?.totalUp ?? 0) + (side === 'UP' ? v : 0)
@@ -749,7 +780,7 @@ export function MarketCardV4() {
           </span>
           <span className="text-zinc-600 text-xs hidden sm:inline">→</span>
           <span className="font-mono text-sm sm:text-base font-bold text-bitcoin">
-            <BtcPrice />
+            <BtcPrice price={currentPrice} loading={priceLoading} error={priceError} />
           </span>
           {priceDelta !== null && (
             <span className={`shrink-0 text-[10px] sm:text-xs font-mono font-medium px-1.5 py-0.5 rounded-md ${
@@ -875,6 +906,8 @@ export function MarketCardV4() {
               <span className="text-[7px] sm:text-[8px] text-zinc-500 leading-none ml-0.5">now</span>
             </div>
           )}
+          {/* Trade tape — live bet feed (bottom-left) */}
+          <TradeTape items={tradeTape} />
         </div>
 
         {/* Trading Controls */}
