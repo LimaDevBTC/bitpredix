@@ -4,6 +4,11 @@
  * When a client places a bet, the server broadcasts the updated pool
  * totals to ALL connected SSE clients, so every user sees the pool
  * change instantly — no polling delay.
+ *
+ * All listener Sets are stored on globalThis to survive Next.js HMR reloads.
+ * Without this, hot reloads create new module-level Sets, breaking the bridge
+ * between SSE connections (subscribed on the old Set) and POST handlers
+ * (broadcasting on the new Set).
  */
 
 export interface PoolUpdate {
@@ -15,9 +20,23 @@ export interface PoolUpdate {
   clientId?: string // originating client — receivers skip their own echo
 }
 
-type PoolUpdateCallback = (data: PoolUpdate) => void
+export interface OpenPriceUpdate {
+  roundId: number
+  price: number
+}
 
-const listeners = new Set<PoolUpdateCallback>()
+type PoolUpdateCallback = (data: PoolUpdate) => void
+type OpenPriceCallback = (data: OpenPriceUpdate) => void
+
+const g = globalThis as unknown as {
+  __poolListeners?: Set<PoolUpdateCallback>
+  __openPriceListeners?: Set<OpenPriceCallback>
+}
+g.__poolListeners ??= new Set<PoolUpdateCallback>()
+g.__openPriceListeners ??= new Set<OpenPriceCallback>()
+
+const listeners = g.__poolListeners
+const openPriceListeners = g.__openPriceListeners
 
 export function subscribePoolUpdates(cb: PoolUpdateCallback): () => void {
   listeners.add(cb)
@@ -29,19 +48,6 @@ export function broadcastPoolUpdate(data: PoolUpdate) {
     try { cb(data) } catch {}
   }
 }
-
-// ============================================================================
-// Open price broadcast — propagates canonical open price to all SSE clients
-// ============================================================================
-
-export interface OpenPriceUpdate {
-  roundId: number
-  price: number
-}
-
-type OpenPriceCallback = (data: OpenPriceUpdate) => void
-
-const openPriceListeners = new Set<OpenPriceCallback>()
 
 export function subscribeOpenPrice(cb: OpenPriceCallback): () => void {
   openPriceListeners.add(cb)

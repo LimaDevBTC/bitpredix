@@ -68,3 +68,27 @@ input[type="number"] {
     opacity: 0;
   }
 }
+
+/* Trade tape — live bet feed floating animation */
+.trade-tape-float {
+  animation: tradeTapeFloat 4s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes tradeTapeFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  8% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  60% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+}

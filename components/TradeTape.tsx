@@ -24,29 +24,6 @@ export function TradeTape({ items }: { items: TradeTapeItem[] }) {
           ${item.amount}
         </div>
       ))}
-
-      <style jsx>{`
-        .trade-tape-float {
-          animation: tradeTapeFloat 4s ease-out forwards;
-        }
-        @keyframes tradeTapeFloat {
-          0% {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          8% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-          60% {
-            opacity: 0.7;
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(-50px);
-          }
-        }
-      `}</style>
     </div>
   )
 }

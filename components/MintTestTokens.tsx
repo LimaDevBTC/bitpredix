@@ -136,14 +136,26 @@ export function MintTestTokens() {
   // Escuta eventos de mudança de saldo (após apostas, claims, etc)
   useEffect(() => {
     const handleBalanceChanged = () => {
-      // Tenta atualizar em intervalos crescentes para pegar a confirmação on-chain
-      // Transações testnet demoram ~30-60s para confirmar
+      // Refresh imediato + intervalos crescentes para pegar a confirmação on-chain
+      refresh()
       setTimeout(() => refresh(), 5000)
       setTimeout(() => refresh(), 15000)
       setTimeout(() => refresh(), 30000)
     }
+    // Atualiza imediatamente quando outro componente já buscou o saldo
+    const handleBalanceUpdated = (e: Event) => {
+      const { balance: newBalance } = (e as CustomEvent).detail
+      if (newBalance) {
+        setBalance(newBalance)
+        setLoading(false)
+      }
+    }
     window.addEventListener('bitpredix:balance-changed', handleBalanceChanged)
-    return () => window.removeEventListener('bitpredix:balance-changed', handleBalanceChanged)
+    window.addEventListener('bitpredix:balance-updated', handleBalanceUpdated)
+    return () => {
+      window.removeEventListener('bitpredix:balance-changed', handleBalanceChanged)
+      window.removeEventListener('bitpredix:balance-updated', handleBalanceUpdated)
+    }
   }, [refresh])
 
   // Limpa estado imediatamente ao desconectar a carteira

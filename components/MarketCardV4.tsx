@@ -456,7 +456,10 @@ export function MarketCardV4() {
         .then(r => r.json())
         .then(d => {
           if (d.ok) {
-            if (d.balance) setTokenBalance(Number(d.balance) / 1e6)
+            if (d.balance) {
+              setTokenBalance(Number(d.balance) / 1e6)
+              window.dispatchEvent(new CustomEvent('bitpredix:balance-updated', { detail: { balance: d.balance } }))
+            }
             if (d.canMint !== true || !mintSubmittedRef.current) setCanMint(d.canMint === true)
           }
         })
@@ -526,7 +529,10 @@ export function MarketCardV4() {
         .then(r => r.json())
         .then(d => {
           if (d.ok) {
-            if (d.balance) setTokenBalance(Number(d.balance) / 1e6)
+            if (d.balance) {
+              setTokenBalance(Number(d.balance) / 1e6)
+              window.dispatchEvent(new CustomEvent('bitpredix:balance-updated', { detail: { balance: d.balance } }))
+            }
             if (d.canMint !== true || !mintSubmittedRef.current) setCanMint(d.canMint === true)
           }
         })

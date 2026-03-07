@@ -6,6 +6,8 @@
  * optimistic values with on-chain data using max(), so ALL clients see
  * pool updates within the next poll cycle (~3s) instead of waiting for
  * blockchain confirmation (~10-30s on Stacks testnet).
+ *
+ * All Maps are stored on globalThis to survive Next.js HMR reloads.
  */
 
 interface RoundPool {
@@ -13,7 +15,15 @@ interface RoundPool {
   down: number // micro-units
 }
 
-const pools = new Map<number, RoundPool>()
+const g = globalThis as unknown as {
+  __poolCache?: Map<number, RoundPool>
+  __openPriceCache?: Map<number, number>
+}
+g.__poolCache ??= new Map<number, RoundPool>()
+g.__openPriceCache ??= new Map<number, number>()
+
+const pools = g.__poolCache
+const openPrices = g.__openPriceCache
 
 /** Record an optimistic bet for a round (amount in micro-units). */
 export function addOptimisticBet(roundId: number, side: 'UP' | 'DOWN', amountMicro: number) {
@@ -39,8 +49,6 @@ export function getOptimisticPool(roundId: number): RoundPool {
 // ============================================================================
 // Open price cache — first-write-wins per round
 // ============================================================================
-
-const openPrices = new Map<number, number>()
 
 /** Set open price for a round. Returns true if this was the first write (accepted). */
 export function setOpenPrice(roundId: number, price: number): boolean {
