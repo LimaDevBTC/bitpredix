@@ -136,9 +136,8 @@ export async function fetchCurrentPrice(): Promise<PythPrice> {
  * @returns Preco em USD
  */
 export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice> {
-  // Busca candles ate o timestamp pedido
-  // Usa range amplo para garantir que existe pelo menos 1 candle completo
-  const response = await fetch(`/api/pyth-price?from=${timestamp - 300}&to=${timestamp}`)
+  // Busca candles incluindo o candle que ABRE em `timestamp`
+  const response = await fetch(`/api/pyth-price?from=${timestamp - 300}&to=${timestamp + 60}`)
   const data = await response.json()
 
   if (!response.ok || !data.ok) {
@@ -149,29 +148,44 @@ export async function getPriceAtTimestamp(timestamp: number): Promise<PythPrice>
   }
 
   const opens: number[] = data.open || []
+  const closes: number[] = data.close || []
   const timestamps: number[] = data.timestamps || []
 
   if (opens.length === 0) {
     throw new Error(`NO_HISTORICAL_DATA: Empty candle data for timestamp ${timestamp}`)
   }
 
-  // Queremos o candle que ABRE em `timestamp - 60` (cobre [timestamp-60, timestamp))
-  // Usamos o OPEN do candle (nao o close) porque o Pyth continua atualizando
-  // o close de candles recentes por varios segundos — o open eh fixo desde a publicacao.
-  const targetCandleOpen = timestamp - 60
-  const idx = findClosestCandleIndex(timestamps, targetCandleOpen)
+  // Estrategia: queremos o preco no instante `timestamp`.
+  // 1. Melhor opcao: open do candle que comeca em `timestamp` (preco exato em T, estavel)
+  // 2. Fallback: close do candle que comeca em `timestamp - 60` (preco no fim do minuto anterior ≈ T)
+  //
+  // O candle em `timestamp` pode nao existir ainda se o round acabou de comecar
+  // (Pyth publica apos o minuto completar). Nesse caso usamos o close do candle anterior.
+  const idx = findClosestCandleIndex(timestamps, timestamp)
 
-  // Se o candle mais proximo esta a mais de 30s do esperado, dados incompletos — retry
-  if (Math.abs(timestamps[idx] - targetCandleOpen) > 30) {
-    throw new Error(`NO_HISTORICAL_DATA: Expected candle at ~${targetCandleOpen}, closest is ${timestamps[idx]}`)
+  if (Math.abs(timestamps[idx] - timestamp) <= 5) {
+    // Candle exato em `timestamp` existe — usa seu open (preco em T, estavel)
+    return {
+      price: opens[idx],
+      confidence: 0,
+      timestamp: timestamps[idx],
+      expo: 0
+    }
   }
 
-  return {
-    price: opens[idx],
-    confidence: 0,
-    timestamp: timestamps[idx],
-    expo: 0
+  // Candle em `timestamp` nao existe — tenta close do candle anterior (T-60)
+  const prevIdx = findClosestCandleIndex(timestamps, timestamp - 60)
+  if (Math.abs(timestamps[prevIdx] - (timestamp - 60)) <= 5 && closes[prevIdx]) {
+    return {
+      price: closes[prevIdx],
+      confidence: 0,
+      timestamp: timestamps[prevIdx],
+      expo: 0
+    }
   }
+
+  // Nenhum candle proximo o suficiente — retry
+  throw new Error(`NO_HISTORICAL_DATA: Expected candle at ~${timestamp}, closest is ${timestamps[idx]}`)
 }
 
 /**

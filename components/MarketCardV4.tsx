@@ -113,25 +113,23 @@ export function MarketCardV4() {
         const prevBets = roundBetsRef.current
         const prevOpenPrice = openPriceRef.current
         const prevPool = poolRef.current
-        if (prevBets && (prevBets.up > 0 || prevBets.down > 0) && prevOpenPrice && currentPrice) {
+        // Only calculate result if bets belong to the round that just ended
+        if (prevBets && prevBets.roundId === lastRoundIdRef.current && (prevBets.up > 0 || prevBets.down > 0) && prevOpenPrice && currentPrice) {
           const outcome: 'UP' | 'DOWN' = currentPrice > prevOpenPrice ? 'UP' : 'DOWN'
           const totalCost = prevBets.up + prevBets.down
           const winningBet = outcome === 'UP' ? prevBets.up : prevBets.down
 
           let netPnL: number | null = null
-          if (prevPool && (prevPool.totalUp > 0 || prevPool.totalDown > 0)) {
+          if (winningBet > 0 && prevPool && prevPool.totalUp > 0 && prevPool.totalDown > 0) {
             const winningPool = outcome === 'UP' ? prevPool.totalUp : prevPool.totalDown
             const totalPool = prevPool.totalUp + prevPool.totalDown
-            if (winningBet > 0 && winningPool > 0) {
-              const grossPayout = (winningBet / winningPool) * totalPool
-              const netPayout = grossPayout * 0.97
-              netPnL = Math.round((netPayout - totalCost) * 100) / 100
-            } else {
-              netPnL = -totalCost
-            }
+            const grossPayout = (winningBet / winningPool) * totalPool
+            const netPayout = grossPayout * 0.97
+            netPnL = Math.round((netPayout - totalCost) * 100) / 100
+            // Safety clamp: PnL can never be worse than losing everything
+            netPnL = Math.max(-totalCost, netPnL)
           } else if (winningBet > 0) {
-            // No pool data but user bet on winning side — can't calculate exact payout
-            // Show bet amount as minimum (contract returns at least 97% when no opposing pool)
+            // No reliable pool data — show conservative estimate
             netPnL = Math.round((winningBet * 0.97 - totalCost) * 100) / 100
           } else {
             // User only bet on losing side — total loss
@@ -154,7 +152,7 @@ export function MarketCardV4() {
 
         // Limpa cache de open prices antigos (mantém últimos 60 rounds = 1h)
         try {
-          const keys = Object.keys(localStorage).filter(k => k.startsWith('opv2_') || k.startsWith('openPrice_'))
+          const keys = Object.keys(localStorage).filter(k => k.startsWith('opv3_') || k.startsWith('opv2_') || k.startsWith('openPrice_'))
           if (keys.length > 60) {
             keys.sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]))
             for (let i = 0; i < keys.length - 60; i++) localStorage.removeItem(keys[i])
@@ -183,7 +181,7 @@ export function MarketCardV4() {
     let cancelled = false
 
     const roundStartTs = roundId * 60 // unix seconds
-    const cacheKey = `opv2_${roundId}`
+    const cacheKey = `opv3_${roundId}`
 
     // Check localStorage cache first — prevents price changing on refresh
     try {
@@ -608,12 +606,14 @@ export function MarketCardV4() {
       })
       console.log('Bet sponsored & broadcast:', txid)
 
-      // Sucesso — acumula apostas no round atual
-      const prevBets = (roundBets?.roundId === round.id) ? roundBets : { roundId: round.id, up: 0, down: 0 }
-      setRoundBets({
-        roundId: round.id,
-        up: prevBets.up + (side === 'UP' ? v : 0),
-        down: prevBets.down + (side === 'DOWN' ? v : 0),
+      // Sucesso — acumula apostas no round atual (functional updater to avoid stale closure)
+      setRoundBets(prev => {
+        const base = (prev?.roundId === round.id) ? prev : { roundId: round.id, up: 0, down: 0 }
+        return {
+          roundId: round.id,
+          up: base.up + (side === 'UP' ? v : 0),
+          down: base.down + (side === 'DOWN' ? v : 0),
+        }
       })
       setAmount('')
 
