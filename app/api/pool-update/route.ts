@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { addOptimisticBet } from '@/lib/pool-cache'
+import { addOptimisticBet, getOptimisticPool } from '@/lib/pool-cache'
+import { broadcastPoolUpdate } from '@/lib/pool-broadcast'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,16 @@ export async function POST(request: NextRequest) {
     }
 
     addOptimisticBet(roundId, side, amountMicro)
+
+    // Broadcast to all connected SSE clients so they see the update instantly
+    const pool = getOptimisticPool(roundId)
+    broadcastPoolUpdate({
+      roundId,
+      side,
+      amountMicro,
+      totalUp: pool.up,
+      totalDown: pool.down,
+    })
 
     return NextResponse.json({ ok: true })
   } catch {

@@ -249,7 +249,7 @@ export function MarketCardV4() {
     return () => clearTimeout(timer)
   }, [error])
 
-  // Poll pool data from blockchain — 3s normal, 2s burst after bet
+  // Poll pool data from blockchain — 5s baseline, 2s burst after own bet
   const poolBurstUntilRef = useRef<number>(0)
 
   const fetchPool = useCallback(async () => {
@@ -282,12 +282,54 @@ export function MarketCardV4() {
       if (cancelled) return
       await fetchPool()
       if (cancelled) return
-      const delay = Date.now() < poolBurstUntilRef.current ? 2000 : 3000
+      // SSE handles real-time updates; polling is now a fallback for on-chain confirmation
+      const delay = Date.now() < poolBurstUntilRef.current ? 2000 : 5000
       setTimeout(poll, delay)
     }
     poll()
     return () => { cancelled = true }
   }, [roundId, fetchPool])
+
+  // Real-time pool sync via SSE — all clients see bets instantly
+  useEffect(() => {
+    let es: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const connect = () => {
+      es = new EventSource('/api/pool-stream')
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'pool-update' || data.type === 'snapshot') {
+            const rid = data.roundId
+            if (rid !== lastRoundIdRef.current) return
+            const up = (data.totalUp ?? 0) / 1e6 // micro → USD
+            const down = (data.totalDown ?? 0) / 1e6
+            setPool(prev => {
+              const newUp = Math.max(up, prev?.totalUp ?? 0)
+              const newDown = Math.max(down, prev?.totalDown ?? 0)
+              const { priceUp, priceDown } = calcSeededPrices(newUp, newDown)
+              return { totalUp: newUp, totalDown: newDown, priceUp, priceDown }
+            })
+          }
+        } catch {}
+      }
+
+      es.onerror = () => {
+        es?.close()
+        // Reconnect after 3s on error
+        reconnectTimer = setTimeout(connect, 3000)
+      }
+    }
+
+    connect()
+
+    return () => {
+      es?.close()
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+    }
+  }, [])
 
   // Fetch recent round outcomes from Pyth 1-min candle data
   // Re-runs on round change + delayed retry (candle may not be available instantly)
