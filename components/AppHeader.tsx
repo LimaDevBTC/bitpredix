@@ -1,15 +1,25 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { History, Crown, CircleUserRound } from 'lucide-react'
 import { MintTestTokensWrapper } from './MintTestTokensWrapper'
 import { ConnectWalletButtonWrapper } from './ConnectWalletButtonWrapper'
 import { getLocalStorage, isConnected } from '@stacks/connect'
 
+function getSessionId(): string {
+  let sid = sessionStorage.getItem('predix_sid')
+  if (!sid) {
+    sid = 's_' + Math.random().toString(36).slice(2, 10)
+    sessionStorage.setItem('predix_sid', sid)
+  }
+  return sid
+}
+
 export function AppHeader() {
   const [stxAddress, setStxAddress] = useState<string | null>(null)
   const [activeUsers, setActiveUsers] = useState<number | null>(null)
+  const sessionIdRef = useRef<string>('')
 
   const refresh = useCallback(() => {
     if (!isConnected()) { setStxAddress(null); return }
@@ -31,7 +41,33 @@ export function AppHeader() {
     }
   }, [refresh])
 
-  // Listen for active user count from MarketCardV4 polling
+  // Own heartbeat polling — works on every page, not just home.
+  // On the home page, MarketCardV4's 1s poll also sends heartbeats and
+  // dispatches 'predix:active-users' events which update faster.
+  useEffect(() => {
+    sessionIdRef.current = getSessionId()
+    let cancelled = false
+
+    const poll = async () => {
+      if (cancelled) return
+      try {
+        const sid = sessionIdRef.current
+        const res = await fetch(`/api/round?_=${Date.now()}&sid=${sid}`, { cache: 'no-store' })
+        if (res.ok) {
+          const data = await res.json()
+          if (typeof data.activeUsers === 'number' && data.activeUsers > 0) {
+            setActiveUsers(data.activeUsers)
+          }
+        }
+      } catch { /* ignore */ }
+      if (!cancelled) setTimeout(poll, 5000) // 5s on non-home pages (lighter)
+    }
+
+    poll()
+    return () => { cancelled = true }
+  }, [])
+
+  // Also accept faster updates from MarketCardV4 on the home page
   useEffect(() => {
     const handler = (e: Event) => {
       setActiveUsers((e as CustomEvent<number>).detail)
