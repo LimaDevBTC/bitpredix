@@ -101,7 +101,18 @@ export function MarketCardV4() {
   const roundId = round?.id ?? null
   const lastRoundIdRef = useRef<number | null>(null)
   const openPriceRef = useRef<number | null>(null)
+  const sessionIdRef = useRef<string>('')
   const fetchingOpenForRef = useRef<number | null>(null)
+
+  // Generate anonymous session ID for active user tracking
+  useEffect(() => {
+    let sid = sessionStorage.getItem('predix_sid')
+    if (!sid) {
+      sid = 's_' + Math.random().toString(36).slice(2, 10)
+      sessionStorage.setItem('predix_sid', sid)
+    }
+    sessionIdRef.current = sid
+  }, [])
 
   // Push a bet into the trade tape (auto-removes after 4s, max 5 visible)
   const pushTradeTape = useCallback((side: 'UP' | 'DOWN', amount: number) => {
@@ -292,8 +303,9 @@ export function MarketCardV4() {
 
   const fetchPool = useCallback(async () => {
     try {
-      // Cache-busting query param to defeat any CDN/edge caching
-      const res = await fetch(`/api/round?_=${Date.now()}`, { cache: 'no-store' })
+      // Cache-busting + session ID for active user heartbeat
+      const sid = sessionIdRef.current
+      const res = await fetch(`/api/round?_=${Date.now()}${sid ? `&sid=${sid}` : ''}`, { cache: 'no-store' })
       if (!res.ok) return
       const data = await res.json()
       if (!data.ok) return
@@ -333,6 +345,11 @@ export function MarketCardV4() {
         openPriceRef.current = data.openPrice
         try { localStorage.setItem(`opv3_${apiRoundId}`, String(data.openPrice)) } catch {}
         setRound(prev => prev ? { ...prev, priceAtStart: data.openPrice } : prev)
+      }
+
+      // Broadcast active user count to AppHeader via CustomEvent
+      if (typeof data.activeUsers === 'number' && data.activeUsers > 0) {
+        window.dispatchEvent(new CustomEvent('predix:active-users', { detail: data.activeUsers }))
       }
 
       // Log Redis connectivity status (dev only)

@@ -1,7 +1,7 @@
 import { getOrCreateCurrentRound } from '@/lib/rounds'
 import { fetchBtcPriceUsd } from '@/lib/btc-price'
 import { getPriceUp, getPriceDown } from '@/lib/amm'
-import { getOptimisticPool, getRecentTrades, getOpenPrice } from '@/lib/pool-store'
+import { getOptimisticPool, getRecentTrades, getOpenPrice, heartbeatAndCount } from '@/lib/pool-store'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -109,17 +109,20 @@ async function getOnChainData(roundId: number): Promise<{ up: number; down: numb
 }
 
 /** GET: obter rodada atual e precos. */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const sid = request.nextUrl.searchParams.get('sid') || ''
+
     if (BITPREDIX_ID && BITPREDIX_ID.includes('.')) {
       const roundId = Math.floor(Date.now() / 1000 / 60)
 
       // Fetch KV (fast, ~1-5ms) and on-chain (slow, cached) in parallel
-      const [optimistic, recentTrades, serverOpenPrice, onChain] = await Promise.all([
+      const [optimistic, recentTrades, serverOpenPrice, onChain, activeUsers] = await Promise.all([
         getOptimisticPool(roundId),
         getRecentTrades(roundId),
         getOpenPrice(roundId),
         getOnChainData(roundId),
+        sid ? heartbeatAndCount(sid) : Promise.resolve(0),
       ])
 
       const totalUp = Math.max(onChain.up, optimistic.up)
@@ -152,6 +155,7 @@ export async function GET() {
         serverNow: Date.now(),
         recentTrades,
         openPrice: serverOpenPrice,
+        activeUsers,
         kvConnected: optimistic._kvConnected ?? true,
         ok: true,
       })

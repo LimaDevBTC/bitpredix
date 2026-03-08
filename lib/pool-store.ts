@@ -270,3 +270,27 @@ export async function releaseSponsorLock(): Promise<void> {
     await kv.del('sponsor-lock')
   }
 }
+
+// ---------------------------------------------------------------------------
+// Active users (heartbeat via ZSET — score = unix timestamp)
+// ---------------------------------------------------------------------------
+
+const ACTIVE_TTL_SECONDS = 15
+
+export async function heartbeatAndCount(sessionId: string): Promise<number> {
+  const kv = getRedis()
+  if (!kv) return 1
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    const pipe = kv.pipeline()
+    pipe.zadd('active-users', { score: now, member: sessionId })
+    pipe.zremrangebyscore('active-users', '-inf', now - ACTIVE_TTL_SECONDS)
+    pipe.zcard('active-users')
+    const results = await pipe.exec()
+    const count = (results[2] as number) ?? 1
+    return Math.max(count, 1)
+  } catch (err) {
+    console.warn('[pool-store] heartbeat failed:', (err as Error).message)
+    return 1
+  }
+}

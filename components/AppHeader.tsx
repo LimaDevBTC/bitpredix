@@ -9,6 +9,7 @@ import { getLocalStorage, isConnected } from '@stacks/connect'
 
 export function AppHeader() {
   const [stxAddress, setStxAddress] = useState<string | null>(null)
+  const [activeUsers, setActiveUsers] = useState<number | null>(null)
 
   const refresh = useCallback(() => {
     if (!isConnected()) { setStxAddress(null); return }
@@ -30,6 +31,15 @@ export function AppHeader() {
     }
   }, [refresh])
 
+  // Listen for active user count from MarketCardV4 polling
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setActiveUsers((e as CustomEvent<number>).detail)
+    }
+    window.addEventListener('predix:active-users', handler)
+    return () => window.removeEventListener('predix:active-users', handler)
+  }, [])
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-sm">
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4 flex items-center justify-between gap-3">
@@ -44,7 +54,7 @@ export function AppHeader() {
           />
         </Link>
 
-        {/* Center: Nav icons */}
+        {/* Center: Nav icons + active users */}
         <nav className="flex items-center gap-1">
           {/* History icon */}
           <Link
@@ -73,6 +83,15 @@ export function AppHeader() {
             >
               <CircleUserRound size={20} strokeWidth={1.5} />
             </Link>
+          )}
+
+          {/* Active users badge */}
+          {activeUsers !== null && activeUsers > 0 && (
+            <div className="flex items-center gap-1.5 ml-1 px-2.5 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/40 text-xs text-zinc-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="tabular-nums">{activeUsers}</span>
+              <span className="hidden sm:inline">online</span>
+            </div>
           )}
         </nav>
 
