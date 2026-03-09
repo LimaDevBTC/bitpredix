@@ -28,7 +28,7 @@ export function AppHeader() {
   }, [])
 
   useEffect(() => {
-    refresh()
+    queueMicrotask(refresh)
     const onConnect = () => refresh()
     const onDisconnect = () => setStxAddress(null)
     window.addEventListener('stacks:authenticationResponse', onConnect)

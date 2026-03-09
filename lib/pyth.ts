@@ -358,7 +358,7 @@ export function usePythPrice(): UsePythPriceResult {
 
   useEffect(() => {
     // Busca inicial
-    fetchPrice()
+    queueMicrotask(fetchPrice)
 
     // Polling a cada 500ms para menor latência
     intervalRef.current = setInterval(fetchPrice, 500)
