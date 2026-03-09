@@ -28,9 +28,9 @@ const TRADING_WINDOW_MS = 55 * 1000  // Trading fecha 5s antes do fim do round
 const MIN_BET_USD = 1
 
 // Virtual seed liquidity — prevents cold-start pricing distortion.
-// With SEED=500, a $1 bet moves price ~0.1%, $100 moves ~5%, $1000 moves ~25%.
+// With SEED=100, a $1 bet moves price ~0.5%, $100 moves ~25%.
 // This is purely cosmetic: payouts use real pool values only.
-const VIRTUAL_SEED_USD = 500
+const VIRTUAL_SEED_USD = 100
 
 /** Calculate display prices with virtual seed liquidity. */
 function calcSeededPrices(realUp: number, realDown: number) {

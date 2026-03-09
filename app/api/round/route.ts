@@ -12,7 +12,7 @@ const HIRO_TESTNET = 'https://api.testnet.hiro.so'
 const BITPREDIX_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
 
 // Virtual seed liquidity for display pricing (must match frontend constant)
-const VIRTUAL_SEED = 500 * 1e6 // $500 in micro-units (6 decimals)
+const VIRTUAL_SEED = 100 * 1e6 // $100 in micro-units (6 decimals)
 
 // ---------------------------------------------------------------------------
 // Hiro on-chain cache — on-chain data changes only on tx confirmation (~30s),
