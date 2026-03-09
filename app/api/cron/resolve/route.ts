@@ -12,6 +12,13 @@ import {
 } from '@stacks/transactions'
 import { STACKS_TESTNET } from '@stacks/network'
 import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
+import {
+  getSponsorNonce,
+  setSponsorNonce,
+  clearSponsorNonce,
+  acquireSponsorLock,
+  releaseSponsorLock,
+} from '@/lib/pool-store'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -444,16 +451,45 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
     }
 
-    // Scan recent rounds (last SCAN_BACK rounds) to catch any missed ones
-    const SCAN_BACK = 10
-    const currentRoundId = Math.floor(Date.now() / 60000)
-    let nonce = await getNonce(address)
+    // Acquire sponsor lock so cron and sponsor endpoint don't compete for nonces
+    const gotLock = await acquireSponsorLock(10000) // longer timeout for cron
+    if (!gotLock) {
+      log.push({ action: 'skip', detail: 'Could not acquire sponsor lock (sponsor endpoint busy)' })
+      return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
+    }
 
-    log.push({ action: 'scan', detail: `Rounds ${currentRoundId - SCAN_BACK} to ${currentRoundId - 1}` })
+    try {
+      // Use shared KV nonce tracker (same as sponsor endpoint)
+      const tracked = await getSponsorNonce()
+      let nonce: number
+      if (tracked) {
+        nonce = Number(tracked.nonce)
+        log.push({ action: 'nonce', detail: `KV tracked nonce: ${nonce}` })
+      } else {
+        nonce = await getNonce(address)
+        log.push({ action: 'nonce', detail: `API nonce (no KV): ${nonce}` })
+      }
 
-    for (let i = SCAN_BACK; i >= 1; i--) {
-      const roundId = currentRoundId - i
-      nonce = await processRound(roundId, nonce, privateKey, log)
+      // Scan recent rounds (last SCAN_BACK rounds) to catch any missed ones
+      const SCAN_BACK = 10
+      const currentRoundId = Math.floor(Date.now() / 60000)
+
+      log.push({ action: 'scan', detail: `Rounds ${currentRoundId - SCAN_BACK} to ${currentRoundId - 1}` })
+
+      for (let i = SCAN_BACK; i >= 1; i--) {
+        const roundId = currentRoundId - i
+        nonce = await processRound(roundId, nonce, privateKey, log)
+      }
+
+      // Persist final nonce to KV so sponsor endpoint picks it up
+      await setSponsorNonce(BigInt(nonce))
+      log.push({ action: 'nonce', detail: `KV nonce updated to ${nonce}` })
+    } catch (e) {
+      // Clear stale nonce on error so sponsor endpoint re-fetches from API
+      await clearSponsorNonce()
+      throw e
+    } finally {
+      await releaseSponsorLock()
     }
 
   } catch (e) {

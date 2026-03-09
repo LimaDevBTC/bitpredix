@@ -127,6 +127,15 @@ export async function POST(req: NextRequest) {
       } catch { /* fall through — treat as not self-sponsored */ }
     }
 
+    // Block deployer from placing bets — self-sponsored txs consume 2 nonces
+    // from the same account and cause cascading nonce conflicts
+    if (isSelfSponsored) {
+      return NextResponse.json(
+        { error: 'Deployer wallet cannot place bets (use a different wallet)' },
+        { status: 403 }
+      )
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sponsorOpts: any = {
       transaction,
