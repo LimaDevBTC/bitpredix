@@ -38,7 +38,7 @@ export function Countdown({ endsAt, serverTimeSkew = 0, onEnd, onTick, className
 
   const m = Math.floor(secs / 60)
   const s = secs % 60
-  const urgent = secs > 0 && secs <= 10
+  const urgent = secs > 0 && secs <= 20
   const ended = secs === 0
 
   return (

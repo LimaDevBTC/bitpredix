@@ -11,10 +11,10 @@ export default function Home() {
           <h3 className="font-semibold text-zinc-300 mb-2">How it works</h3>
           <ul className="space-y-1.5">
             <li>• Each round lasts <strong className="text-zinc-300">1 minute</strong>.</li>
-            <li>• Predictions close <strong className="text-zinc-300">5 seconds before the round ends</strong>.</li>
+            <li>• Predictions close <strong className="text-zinc-300">10 seconds before the round ends</strong>.</li>
             <li>• Buy <strong className="text-up">UP</strong> if you think the price will rise, <strong className="text-down">DOWN</strong> if you think it will fall.</li>
-            <li>• UP and DOWN prices are set by an AMM (LMSR).</li>
-            <li>• At the end of the minute: if price went up, UP pays $1 per share; if it went down, DOWN pays $1 per share.</li>
+            <li>• All bets go into a shared pool. When the round ends, the <strong className="text-zinc-300">losing side&apos;s money pays the winning side</strong>. The more people bet against you, the more you can win.</li>
+            <li>• Your payout depends on your share of the winning pool: if you bet early on the less popular side, your return is higher.</li>
           </ul>
         </section>
 

@@ -24,7 +24,7 @@ const MAX_APPROVE_AMOUNT = BigInt('1000000000000') // 1 million USD (6 decimals)
 type Side = 'UP' | 'DOWN'
 
 const ROUND_DURATION_MS = 60 * 1000  // 60 segundos
-const TRADING_WINDOW_MS = 55 * 1000  // Trading fecha 5s antes do fim do round
+const TRADING_WINDOW_MS = 50 * 1000  // Trading fecha 10s antes do fim do round
 const MIN_BET_USD = 1
 
 // Virtual seed liquidity — prevents cold-start pricing distortion.
@@ -999,22 +999,16 @@ export function MarketCardV4() {
                     <button
                       onClick={() => buy('UP')}
                       disabled={!canTrade}
-                      className="flex flex-col items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center justify-center rounded-xl bg-up py-2.5 sm:py-3 text-white transition hover:bg-up/90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">UP</span>
-                      <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
-                        {Math.round((pool?.priceUp ?? 0.5) * 100)}¢ · {((pool?.priceUp ?? 0.5) > 0 ? (1 / (pool?.priceUp ?? 0.5)) : 2).toFixed(1)}x
-                      </span>
                     </button>
                     <button
                       onClick={() => buy('DOWN')}
                       disabled={!canTrade}
-                      className="flex flex-col items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center justify-center rounded-xl bg-down py-2.5 sm:py-3 text-white transition hover:bg-down/90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <span className="text-base sm:text-lg font-bold leading-tight tracking-wide">DOWN</span>
-                      <span className="text-[11px] sm:text-xs font-mono opacity-90 leading-tight">
-                        {Math.round((pool?.priceDown ?? 0.5) * 100)}¢ · {((pool?.priceDown ?? 0.5) > 0 ? (1 / (pool?.priceDown ?? 0.5)) : 2).toFixed(1)}x
-                      </span>
                     </button>
                   </div>
                 </div>
