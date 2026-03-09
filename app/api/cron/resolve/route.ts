@@ -85,29 +85,56 @@ async function getNonce(address: string): Promise<number> {
 // BROADCAST
 // ---------------------------------------------------------------------------
 
-async function broadcastTx(tx: { serialize: () => string; txid: () => string }): Promise<string> {
-  const hexTx = tx.serialize()
-  const binaryTx = Buffer.from(hexTx, 'hex')
+/**
+ * Broadcast with automatic nonce retry — handles ghost txs in node mempool.
+ * Returns { txId, nonce } where nonce is the next available nonce after broadcast.
+ */
+async function broadcastWithRetry(
+  buildTx: (nonce: bigint) => Promise<{ serialize: () => string; txid: () => string }>,
+  startNonce: number,
+  maxRetries = 3
+): Promise<{ txId: string; nextNonce: number }> {
+  let nonce = startNonce
 
-  const res = await fetch(`${HIRO_API}/v2/transactions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream' },
-    body: binaryTx,
-  })
-  const text = await res.text()
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const tx = await buildTx(BigInt(nonce))
+    const hexTx = tx.serialize()
+    const binaryTx = Buffer.from(hexTx, 'hex')
 
-  let data: Record<string, string>
-  try {
-    data = JSON.parse(text)
-  } catch {
-    data = { txid: text.trim().replace(/"/g, '') }
+    const res = await fetch(`${HIRO_API}/v2/transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: binaryTx,
+    })
+    const text = await res.text()
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let data: any
+    try { data = JSON.parse(text) } catch { data = { txid: text.trim().replace(/"/g, '') } }
+
+    if (data.error) {
+      const reason = data.reason as string
+      const reasonData = data.reason_data as { expected?: number } | undefined
+
+      if ((reason === 'BadNonce' || reason === 'ConflictingNonceInMempool') && attempt < maxRetries) {
+        if (reasonData?.expected != null) {
+          nonce = reasonData.expected
+          console.log(`[cron] Nonce error (${reason}), retrying with nonce=${nonce}`)
+          continue
+        }
+        nonce++
+        console.log(`[cron] Nonce conflict, retrying with nonce=${nonce}`)
+        continue
+      }
+
+      throw new Error(`Broadcast failed: ${data.error} — ${reason}`)
+    }
+
+    const txId = data.txid || data || tx.txid()
+    return { txId, nextNonce: nonce + 1 }
   }
 
-  if (data.error) {
-    throw new Error(`Broadcast failed: ${data.error} — ${data.reason || ''}`)
-  }
-
-  return data.txid || tx.txid()
+  throw new Error('Exhausted nonce retries')
 }
 
 async function waitForMempool(txId: string, maxWaitMs = 5000): Promise<string> {
@@ -316,21 +343,22 @@ async function processRound(
     // 3. Try resolve-round (may fail on-chain if Stacks block time is behind)
     //    Even if this fails, claim-on-behalf has a safety net that resolves without block time check
     try {
-      const tx = await makeContractCall({
-        contractAddress: CONTRACT_ADDRESS,
-        contractName: CONTRACT_NAME,
-        functionName: 'resolve-round',
-        functionArgs: [uintCV(roundId), uintCV(priceStart), uintCV(priceEnd)],
-        senderKey: privateKey,
-        network: STACKS_TESTNET,
-
-        fee: TX_FEE,
-        nonce: BigInt(currentNonce),
-      })
-      const txId = await broadcastTx(tx)
+      const { txId, nextNonce } = await broadcastWithRetry(
+        (nonce) => makeContractCall({
+          contractAddress: CONTRACT_ADDRESS,
+          contractName: CONTRACT_NAME,
+          functionName: 'resolve-round',
+          functionArgs: [uintCV(roundId), uintCV(priceStart), uintCV(priceEnd)],
+          senderKey: privateKey,
+          network: STACKS_TESTNET,
+          fee: TX_FEE,
+          nonce,
+        }),
+        currentNonce
+      )
       log.push({ action: 'resolve-round', detail: `Round ${roundId}`, txId })
       await waitForMempool(txId)
-      currentNonce++
+      currentNonce = nextNonce
     } catch (e) {
       // Don't return early — continue to claims which can resolve the round via safety net
       log.push({ action: 'warn', detail: `resolve-round broadcast failed for ${roundId}, will try claim-on-behalf`, error: String(e) })
@@ -359,27 +387,29 @@ async function processRound(
       if (!bet || bet.claimed) continue
 
       try {
-        const tx = await makeContractCall({
-          contractAddress: CONTRACT_ADDRESS,
-          contractName: CONTRACT_NAME,
-          functionName: 'claim-on-behalf',
-          functionArgs: [
-            standardPrincipalCV(bettor),
-            uintCV(roundId),
-            stringAsciiCV(side),
-            uintCV(priceStart),
-            uintCV(priceEnd),
-          ],
-          senderKey: privateKey,
-          network: STACKS_TESTNET,
-          postConditionMode: PostConditionMode.Allow,
-          fee: TX_FEE,
-          nonce: BigInt(currentNonce),
-        })
-        const txId = await broadcastTx(tx)
+        const { txId, nextNonce } = await broadcastWithRetry(
+          (nonce) => makeContractCall({
+            contractAddress: CONTRACT_ADDRESS,
+            contractName: CONTRACT_NAME,
+            functionName: 'claim-on-behalf',
+            functionArgs: [
+              standardPrincipalCV(bettor),
+              uintCV(roundId),
+              stringAsciiCV(side),
+              uintCV(priceStart),
+              uintCV(priceEnd),
+            ],
+            senderKey: privateKey,
+            network: STACKS_TESTNET,
+            postConditionMode: PostConditionMode.Allow,
+            fee: TX_FEE,
+            nonce,
+          }),
+          currentNonce
+        )
         log.push({ action: 'claim-on-behalf', detail: `${bettor.slice(0, 8)}... ${side}`, txId })
         await waitForMempool(txId)
-        currentNonce++
+        currentNonce = nextNonce
       } catch (e) {
         log.push({ action: 'error', detail: `claim-on-behalf ${bettor.slice(0, 8)}... ${side}`, error: String(e) })
       }

@@ -489,16 +489,20 @@ function RoundRow({
                 </div>
                 {/* Rows */}
                 {round.bets
-                  .filter((b) => b.status === 'success')
-                  .sort((a, b) => b.amountUsd - a.amountUsd)
+                  .filter((b) => b.status === 'success' || b.status === 'pending')
+                  .sort((a, b) => {
+                    if (a.status !== b.status) return a.status === 'success' ? -1 : 1
+                    return b.amountUsd - a.amountUsd
+                  })
                   .map((bet) => {
-                    const won = round.resolved && bet.side === round.outcome
-                    const lost = round.resolved && bet.side !== round.outcome
+                    const isPending = bet.status === 'pending'
+                    const won = !isPending && round.resolved && bet.side === round.outcome
+                    const lost = !isPending && round.resolved && bet.side !== round.outcome
 
                     return (
                       <div
                         key={bet.txId}
-                        className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 border-t border-zinc-800/50 text-xs hover:bg-zinc-800/20 transition-colors"
+                        className={`grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 border-t border-zinc-800/50 text-xs hover:bg-zinc-800/20 transition-colors ${isPending ? 'opacity-60' : ''}`}
                       >
                         {/* Wallet */}
                         <a
@@ -523,9 +527,9 @@ function RoundRow({
 
                         {/* Result */}
                         <span className={`text-right font-medium ${
-                          won ? 'text-up' : lost ? 'text-down' : 'text-zinc-500'
+                          isPending ? 'text-yellow-500' : won ? 'text-up' : lost ? 'text-down' : 'text-zinc-500'
                         }`}>
-                          {won ? 'Won' : lost ? 'Lost' : 'Pending'}
+                          {isPending ? 'Pending' : won ? 'Won' : lost ? 'Lost' : 'Pending'}
                         </span>
                       </div>
                     )
