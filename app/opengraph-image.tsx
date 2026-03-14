@@ -7,7 +7,8 @@ export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
 export default async function OGImage() {
-  const logoData = readFileSync(join(process.cwd(), 'public', 'logo.png'))
+  const buf = readFileSync(join(process.cwd(), 'public', 'logo.png'))
+  const logoData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
 
   return new ImageResponse(
     (
