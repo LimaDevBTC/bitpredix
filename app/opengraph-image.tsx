@@ -1,16 +1,13 @@
 import { ImageResponse } from 'next/og'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-export const runtime = 'edge'
 export const alt = 'Predix — Predict Bitcoin. Every Minute.'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
-const logoSrc = fetch(new URL('../public/logo.png', import.meta.url)).then(
-  (res) => res.arrayBuffer()
-)
-
 export default async function OGImage() {
-  const logoData = await logoSrc
+  const logoData = readFileSync(join(process.cwd(), 'public', 'logo.png'))
 
   return new ImageResponse(
     (
@@ -70,8 +67,8 @@ export default async function OGImage() {
 
         {/* Official logo */}
         <img
-          // @ts-expect-error -- Satori accepts ArrayBuffer as img src
-          src={logoData}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          src={logoData as any}
           width={580}
           height={326}
           style={{ marginBottom: '16px' }}
