@@ -144,7 +144,7 @@ interface HiroTx {
 
 import { Redis } from '@upstash/redis'
 
-import { HIRO_API, hiroHeaders } from '@/lib/hiro'
+import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
 const DEPLOYER = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
 const SCAN_PAGE_SIZE = 50
 const MAX_PAGES_PER_SCAN = 20
@@ -342,10 +342,18 @@ async function fetchContractTxs(contractAddress: string, limit: number, offset: 
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
 
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: hiroHeaders(),
       signal: controller.signal,
     })
+    // Monthly quota exhausted — disable key and retry without it
+    if (res.status === 429) {
+      const remaining = res.headers.get('x-ratelimit-remaining-stacks-month')
+      if (remaining === '0' || remaining === '-1') {
+        disableApiKey()
+        res = await fetch(url, { headers: hiroHeaders(), signal: controller.signal })
+      }
+    }
     clearTimeout(timeoutId)
     if (!res.ok) throw new Error(`Hiro API ${res.status}`)
     const data = await res.json()
@@ -362,10 +370,17 @@ async function fetchMempoolTxs(contractAddress: string): Promise<HiroTx[]> {
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
 
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: hiroHeaders(),
       signal: controller.signal,
     })
+    if (res.status === 429) {
+      const remaining = res.headers.get('x-ratelimit-remaining-stacks-month')
+      if (remaining === '0' || remaining === '-1') {
+        disableApiKey()
+        res = await fetch(url, { headers: hiroHeaders(), signal: controller.signal })
+      }
+    }
     clearTimeout(timeoutId)
     if (!res.ok) return []
     const data = await res.json()

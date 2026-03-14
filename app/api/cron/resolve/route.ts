@@ -33,7 +33,7 @@ export const maxDuration = 300
 
 const CONTRACT_ADDRESS = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
 const CONTRACT_NAME = 'predixv2'
-import { HIRO_API, hiroHeaders } from '@/lib/hiro'
+import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
 const PYTH_BENCHMARKS = 'https://benchmarks.pyth.network'
 const TX_FEE = BigInt(50000) // 0.05 STX
 
@@ -67,9 +67,17 @@ async function fetchJson(url: string, options: RequestInit = {}, retries = 2): P
       ...options,
       headers: { ...hiroHeaders(), ...(options.headers as Record<string, string>) },
     })
-    if (res.status === 429 && attempt < retries) {
-      await sleep(500 * (attempt + 1))
-      continue
+    if (res.status === 429) {
+      // Detect monthly quota exhaustion → disable API key and retry without it
+      const remaining = res.headers.get('x-ratelimit-remaining-stacks-month')
+      if (remaining === '0' || remaining === '-1') {
+        disableApiKey()
+        continue // retry immediately without key
+      }
+      if (attempt < retries) {
+        await sleep(500 * (attempt + 1))
+        continue
+      }
     }
     if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`)
     return res.json() as Promise<Record<string, unknown>>
