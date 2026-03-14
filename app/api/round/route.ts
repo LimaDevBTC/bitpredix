@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
 const ROUND_DURATION_MS = 60 * 1000
-import { HIRO_API as HIRO_TESTNET, hiroHeaders } from '@/lib/hiro'
+import { HIRO_API as HIRO_TESTNET, hiroHeaders, disableApiKey } from '@/lib/hiro'
 const BITPREDIX_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
 
 // Virtual seed liquidity for display pricing (must match frontend constant)
@@ -74,7 +74,7 @@ async function getOnChainData(roundId: number): Promise<{ up: number; down: numb
     const [contractAddress, contractName] = parseContractId(BITPREDIX_ID!)
     const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
     const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId) }))
-    const res = await fetch(
+    let res = await fetch(
       `${HIRO_TESTNET}/v2/map_entry/${contractAddress}/${contractName}/rounds?proof=0&tip=latest`,
       {
         method: 'POST',
@@ -84,6 +84,14 @@ async function getOnChainData(roundId: number): Promise<{ up: number; down: numb
         signal: AbortSignal.timeout(4000), // don't let Hiro block us > 4s
       }
     )
+    // Monthly quota exhausted — disable key and retry without it
+    if (res.status === 429) {
+      disableApiKey()
+      res = await fetch(
+        `${HIRO_TESTNET}/v2/map_entry/${contractAddress}/${contractName}/rounds?proof=0&tip=latest`,
+        { method: 'POST', headers: hiroHeaders(), body: JSON.stringify(keyHex), cache: 'no-store', signal: AbortSignal.timeout(4000) }
+      )
+    }
     const json = (await res.json()) as { data?: string }
     if (!res.ok || !json.data) {
       return { up: 0, down: 0, resolved: false, priceStart: 0, priceEnd: 0 }
@@ -121,7 +129,7 @@ async function getJackpotData(roundId: number): Promise<{ balance: number; early
     const { deserializeCV, uintCV, cvToHex } = await import('@stacks/transactions')
 
     // 1. Fetch jackpot balance
-    const balRes = await fetch(
+    let balRes = await fetch(
       `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-jackpot-balance`,
       {
         method: 'POST',
@@ -131,6 +139,13 @@ async function getJackpotData(roundId: number): Promise<{ balance: number; early
         signal: AbortSignal.timeout(4000),
       }
     )
+    if (balRes.status === 429) {
+      disableApiKey()
+      balRes = await fetch(
+        `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-jackpot-balance`,
+        { method: 'POST', headers: { ...hiroHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: contractAddress, arguments: [] }), cache: 'no-store', signal: AbortSignal.timeout(4000) }
+      )
+    }
     const balJson = await balRes.json() as { okay: boolean; result?: string }
     let balance = 0
     if (balJson.okay && balJson.result) {
@@ -139,7 +154,7 @@ async function getJackpotData(roundId: number): Promise<{ balance: number; early
     }
 
     // 2. Fetch round-jackpot
-    const rjRes = await fetch(
+    let rjRes = await fetch(
       `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-round-jackpot`,
       {
         method: 'POST',
@@ -149,6 +164,13 @@ async function getJackpotData(roundId: number): Promise<{ balance: number; early
         signal: AbortSignal.timeout(4000),
       }
     )
+    if (rjRes.status === 429) {
+      disableApiKey()
+      rjRes = await fetch(
+        `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-round-jackpot`,
+        { method: 'POST', headers: { ...hiroHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: contractAddress, arguments: [cvToHex(uintCV(roundId))] }), cache: 'no-store', signal: AbortSignal.timeout(4000) }
+      )
+    }
     const rjJson = await rjRes.json() as { okay: boolean; result?: string }
     let earlyUp = 0, earlyDown = 0
     if (rjJson.okay && rjJson.result) {
