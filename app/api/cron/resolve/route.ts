@@ -542,7 +542,7 @@ export async function GET(req: Request) {
       }
 
       // Scan recent rounds — wide window to catch rounds stuck by Stacks block time lag
-      const SCAN_BACK = 60
+      const SCAN_BACK = 120
       const currentRoundId = Math.floor(Date.now() / 60000)
       const roundIds = Array.from({ length: SCAN_BACK }, (_, i) => currentRoundId - SCAN_BACK + i)
 
