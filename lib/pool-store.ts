@@ -98,6 +98,9 @@ export async function addOptimisticBet(
       pipe.ltrim(`trades:${roundId}`, 0, 49) // keep more trades for sync
       pipe.expire(`trades:${roundId}`, 120)
       await pipe.exec()
+      // Invalidate coalescing cache so next poll picks up the new bet immediately
+      _roundStateCache = null
+      _tradesCache = null
       console.log(`[pool-store] KV bet written: round=${roundId} ${side} $${(amountMicro / 1e6).toFixed(2)} id=${id}`)
     } catch (err) {
       console.error('[pool-store] Redis WRITE failed:', (err as Error).message)
@@ -149,7 +152,38 @@ export interface RoundState {
   _kvConnected: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Coalescing cache — when N clients poll /api/round within the same window,
+// we serve all of them from a single Redis call. This reduces Redis usage
+// from O(N) to O(1) per cache window.
+// ---------------------------------------------------------------------------
+const COALESCE_TTL_MS = 1500 // serve cached data for 1.5s
+
+let _roundStateCache: { roundId: number; state: RoundState; ts: number } | null = null
+let _roundStatePending: Promise<RoundState> | null = null
+
 export async function getRoundState(roundId: number): Promise<RoundState> {
+  // Return cached if fresh and same round
+  if (_roundStateCache && _roundStateCache.roundId === roundId && Date.now() - _roundStateCache.ts < COALESCE_TTL_MS) {
+    return _roundStateCache.state
+  }
+
+  // Coalesce: if another request is already fetching, await the same promise
+  if (_roundStatePending) {
+    try { return await _roundStatePending } catch { /* fall through */ }
+  }
+
+  _roundStatePending = _fetchRoundState(roundId)
+  try {
+    const state = await _roundStatePending
+    _roundStateCache = { roundId, state, ts: Date.now() }
+    return state
+  } finally {
+    _roundStatePending = null
+  }
+}
+
+async function _fetchRoundState(roundId: number): Promise<RoundState> {
   const kv = getRedis()
   if (kv) {
     try {
@@ -180,16 +214,28 @@ export async function getOptimisticPool(roundId: number): Promise<{ up: number; 
   return { up: state.up, down: state.down, _kvConnected: state._kvConnected }
 }
 
+let _tradesCache: { roundId: number; trades: RecentTrade[]; ts: number } | null = null
+
 export async function getRecentTrades(roundId: number): Promise<RecentTrade[]> {
+  // Coalesce reads
+  if (_tradesCache && _tradesCache.roundId === roundId && Date.now() - _tradesCache.ts < COALESCE_TTL_MS) {
+    return _tradesCache.trades
+  }
+
   const kv = getRedis()
   if (kv) {
     try {
       const raw: string[] = await kv.lrange(`trades:${roundId}`, 0, 49)
-      if (!raw || raw.length === 0) return []
+      if (!raw || raw.length === 0) {
+        _tradesCache = { roundId, trades: [], ts: Date.now() }
+        return []
+      }
       const now = Date.now()
-      return raw
+      const trades = raw
         .map(item => typeof item === 'string' ? JSON.parse(item) : item)
-        .filter((t: RecentTrade) => now - t.ts < 120_000) // keep trades for 2 minutes
+        .filter((t: RecentTrade) => now - t.ts < 120_000)
+      _tradesCache = { roundId, trades, ts: now }
+      return trades
     } catch (err) {
       console.error('[pool-store] Redis trades READ failed:', (err as Error).message)
     }
@@ -202,7 +248,13 @@ export async function getRecentTrades(roundId: number): Promise<RecentTrade[]> {
 // Open price (first-write-wins per round) — stored in rs:{roundId} field "op"
 // ---------------------------------------------------------------------------
 
+// Track rounds where open price was already set (avoid repeated Redis calls)
+const _openPriceSet = new Set<number>()
+
 export async function setOpenPrice(roundId: number, price: number): Promise<boolean> {
+  // Skip Redis call if we already know this round's price was set
+  if (_openPriceSet.has(roundId)) return false
+
   const kv = getRedis()
   if (kv) {
     try {
@@ -210,8 +262,15 @@ export async function setOpenPrice(roundId: number, price: number): Promise<bool
       const wasSet = await kv.hsetnx(rsKey, 'op', price)
       if (wasSet === 1) {
         await kv.expire(rsKey, 300)
+        _openPriceSet.add(roundId)
+        // Evict old entries
+        if (_openPriceSet.size > 5) {
+          const oldest = [..._openPriceSet].sort((a, b) => a - b)
+          for (let i = 0; i < oldest.length - 3; i++) _openPriceSet.delete(oldest[i])
+        }
         return true
       }
+      _openPriceSet.add(roundId) // someone else set it first, still don't retry
       return false
     } catch (err) {
       console.error('[pool-store] Redis setOpenPrice failed:', (err as Error).message)
@@ -346,15 +405,24 @@ export async function setProjectedJackpot(balanceMicro: number): Promise<void> {
   }
 }
 
+let _jackpotProjCache: { val: number; ts: number } = { val: 0, ts: 0 }
+
 export async function getProjectedJackpot(): Promise<number> {
+  // Coalesce reads
+  if (Date.now() - _jackpotProjCache.ts < COALESCE_TTL_MS) {
+    return _jackpotProjCache.val
+  }
+
   const kv = getRedis()
   if (!kv) return 0
   try {
     const val = await kv.get<number>('jackpot-projected')
-    return val ?? 0
+    const result = val ?? 0
+    _jackpotProjCache = { val: result, ts: Date.now() }
+    return result
   } catch (err) {
     console.warn('[pool-store] jackpot-projected read failed:', (err as Error).message)
-    return 0
+    return _jackpotProjCache.val
   }
 }
 
