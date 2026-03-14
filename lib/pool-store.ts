@@ -90,9 +90,10 @@ export async function addOptimisticBet(
       }
 
       const field = side === 'UP' ? 'up' : 'down'
+      const rsKey = `rs:${roundId}`
       const pipe = kv.pipeline()
-      pipe.hincrby(`pool:${roundId}`, field, amountMicro)
-      pipe.expire(`pool:${roundId}`, 300)
+      pipe.hincrby(rsKey, field, amountMicro)
+      pipe.expire(rsKey, 300)
       pipe.lpush(`trades:${roundId}`, JSON.stringify(trade))
       pipe.ltrim(`trades:${roundId}`, 0, 49) // keep more trades for sync
       pipe.expire(`trades:${roundId}`, 120)
@@ -133,24 +134,50 @@ function writeFallback(roundId: number, side: 'UP' | 'DOWN', amountMicro: number
   }
 }
 
-export async function getOptimisticPool(roundId: number): Promise<{ up: number; down: number; _kvConnected?: boolean }> {
+// ---------------------------------------------------------------------------
+// Consolidated round state — single hash `rs:{roundId}` for all per-round data.
+// Fields: up, down, op (open-price), eu (early-up), ed (early-down)
+// Reduces 4 Redis reads per poll → 1 HGETALL.
+// ---------------------------------------------------------------------------
+
+export interface RoundState {
+  up: number
+  down: number
+  openPrice: number | null
+  earlyUp: number
+  earlyDown: number
+  _kvConnected: boolean
+}
+
+export async function getRoundState(roundId: number): Promise<RoundState> {
   const kv = getRedis()
   if (kv) {
     try {
-      const data = await kv.hgetall(`pool:${roundId}`)
-      if (!data || Object.keys(data).length === 0) return { up: 0, down: 0, _kvConnected: true }
+      const data = await kv.hgetall(`rs:${roundId}`) as Record<string, unknown> | null
+      if (!data || Object.keys(data).length === 0) {
+        return { up: 0, down: 0, openPrice: null, earlyUp: 0, earlyDown: 0, _kvConnected: true }
+      }
       return {
-        up: Number((data as Record<string, unknown>).up || 0),
-        down: Number((data as Record<string, unknown>).down || 0),
+        up: Number(data.up || 0),
+        down: Number(data.down || 0),
+        openPrice: data.op != null ? Number(data.op) : null,
+        earlyUp: Number(data.eu || 0),
+        earlyDown: Number(data.ed || 0),
         _kvConnected: true,
       }
     } catch (err) {
-      console.error('[pool-store] Redis READ failed:', (err as Error).message)
-      // Fall through to in-memory
+      console.error('[pool-store] Redis getRoundState failed:', (err as Error).message)
     }
   }
+  // In-memory fallback
   const mem = g.__poolCache!.get(roundId) ?? { up: 0, down: 0 }
-  return { ...mem, _kvConnected: false }
+  const op = g.__openPriceCache!.get(roundId) ?? null
+  return { ...mem, openPrice: op, earlyUp: 0, earlyDown: 0, _kvConnected: false }
+}
+
+export async function getOptimisticPool(roundId: number): Promise<{ up: number; down: number; _kvConnected?: boolean }> {
+  const state = await getRoundState(roundId)
+  return { up: state.up, down: state.down, _kvConnected: state._kvConnected }
 }
 
 export async function getRecentTrades(roundId: number): Promise<RecentTrade[]> {
@@ -172,15 +199,20 @@ export async function getRecentTrades(roundId: number): Promise<RecentTrade[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Open price (first-write-wins per round)
+// Open price (first-write-wins per round) — stored in rs:{roundId} field "op"
 // ---------------------------------------------------------------------------
 
 export async function setOpenPrice(roundId: number, price: number): Promise<boolean> {
   const kv = getRedis()
   if (kv) {
     try {
-      const result = await kv.set(`open-price:${roundId}`, price, { nx: true, ex: 300 })
-      return result === 'OK'
+      const rsKey = `rs:${roundId}`
+      const wasSet = await kv.hsetnx(rsKey, 'op', price)
+      if (wasSet === 1) {
+        await kv.expire(rsKey, 300)
+        return true
+      }
+      return false
     } catch (err) {
       console.error('[pool-store] Redis setOpenPrice failed:', (err as Error).message)
     }
@@ -196,16 +228,8 @@ export async function setOpenPrice(roundId: number, price: number): Promise<bool
 }
 
 export async function getOpenPrice(roundId: number): Promise<number | null> {
-  const kv = getRedis()
-  if (kv) {
-    try {
-      const val = await kv.get<number>(`open-price:${roundId}`)
-      return val ?? null
-    } catch (err) {
-      console.error('[pool-store] Redis getOpenPrice failed:', (err as Error).message)
-    }
-  }
-  return g.__openPriceCache!.get(roundId) ?? null
+  const state = await getRoundState(roundId)
+  return state.openPrice
 }
 
 // ---------------------------------------------------------------------------
@@ -283,10 +307,11 @@ export async function addOptimisticEarlyBet(
   const kv = getRedis()
   if (!kv) return
   try {
-    const field = side === 'UP' ? 'early-up' : 'early-down'
+    const field = side === 'UP' ? 'eu' : 'ed'
+    const rsKey = `rs:${roundId}`
     const pipe = kv.pipeline()
-    pipe.hincrby(`jackpot:${roundId}`, field, amountMicro)
-    pipe.expire(`jackpot:${roundId}`, 300)
+    pipe.hincrby(rsKey, field, amountMicro)
+    pipe.expire(rsKey, 300)
     await pipe.exec()
   } catch (err) {
     console.warn('[pool-store] Redis jackpot write failed (non-fatal):', (err as Error).message)
@@ -294,19 +319,8 @@ export async function addOptimisticEarlyBet(
 }
 
 export async function getOptimisticEarlyBets(roundId: number): Promise<{ earlyUp: number; earlyDown: number }> {
-  const kv = getRedis()
-  if (!kv) return { earlyUp: 0, earlyDown: 0 }
-  try {
-    const data = await kv.hgetall(`jackpot:${roundId}`)
-    if (!data || Object.keys(data).length === 0) return { earlyUp: 0, earlyDown: 0 }
-    return {
-      earlyUp: Number((data as Record<string, unknown>)['early-up'] || 0),
-      earlyDown: Number((data as Record<string, unknown>)['early-down'] || 0),
-    }
-  } catch (err) {
-    console.warn('[pool-store] Redis jackpot read failed:', (err as Error).message)
-    return { earlyUp: 0, earlyDown: 0 }
-  }
+  const state = await getRoundState(roundId)
+  return { earlyUp: state.earlyUp, earlyDown: state.earlyDown }
 }
 
 // ---------------------------------------------------------------------------
@@ -349,21 +363,31 @@ export async function getProjectedJackpot(): Promise<number> {
 // ---------------------------------------------------------------------------
 
 const ACTIVE_TTL_SECONDS = 15
+const HEARTBEAT_INTERVAL_MS = 5000
+let _heartbeatCache: { count: number; ts: number } = { count: 1, ts: 0 }
 
 export async function heartbeatAndCount(sessionId: string): Promise<number> {
   const kv = getRedis()
   if (!kv) return 1
+
+  // Throttle: only hit Redis every 5s, return cached count otherwise
+  const now = Date.now()
+  if (now - _heartbeatCache.ts < HEARTBEAT_INTERVAL_MS) {
+    return _heartbeatCache.count
+  }
+
   try {
-    const now = Math.floor(Date.now() / 1000)
+    const nowSec = Math.floor(now / 1000)
     const pipe = kv.pipeline()
-    pipe.zadd('active-users', { score: now, member: sessionId })
-    pipe.zremrangebyscore('active-users', '-inf', now - ACTIVE_TTL_SECONDS)
+    pipe.zadd('active-users', { score: nowSec, member: sessionId })
+    pipe.zremrangebyscore('active-users', '-inf', nowSec - ACTIVE_TTL_SECONDS)
     pipe.zcard('active-users')
     const results = await pipe.exec()
-    const count = (results[2] as number) ?? 1
-    return Math.max(count, 1)
+    const count = Math.max((results[2] as number) ?? 1, 1)
+    _heartbeatCache = { count, ts: now }
+    return count
   } catch (err) {
     console.warn('[pool-store] heartbeat failed:', (err as Error).message)
-    return 1
+    return _heartbeatCache.count || 1
   }
 }

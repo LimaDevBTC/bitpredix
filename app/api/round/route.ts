@@ -1,7 +1,7 @@
 import { getOrCreateCurrentRound } from '@/lib/rounds'
 import { fetchBtcPriceUsd } from '@/lib/btc-price'
 import { getPriceUp, getPriceDown } from '@/lib/amm'
-import { getOptimisticPool, getRecentTrades, getOpenPrice, heartbeatAndCount, getOptimisticEarlyBets, getProjectedJackpot } from '@/lib/pool-store'
+import { getRoundState, getRecentTrades, heartbeatAndCount, getProjectedJackpot } from '@/lib/pool-store'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -175,20 +175,18 @@ export async function GET(request: NextRequest) {
     if (BITPREDIX_ID && BITPREDIX_ID.includes('.')) {
       const roundId = Math.floor(Date.now() / 1000 / 60)
 
-      // Fetch KV (fast, ~1-5ms) and on-chain (slow, cached) in parallel
-      const [optimistic, recentTrades, serverOpenPrice, onChain, activeUsers, jackpotOnChain, jackpotKV, projectedJackpot] = await Promise.all([
-        getOptimisticPool(roundId),
+      // Fetch KV (single HGETALL for pool+open+early) and on-chain (slow, cached) in parallel
+      const [roundState, recentTrades, onChain, activeUsers, jackpotOnChain, projectedJackpot] = await Promise.all([
+        getRoundState(roundId),
         getRecentTrades(roundId),
-        getOpenPrice(roundId),
         getOnChainData(roundId),
         sid ? heartbeatAndCount(sid) : Promise.resolve(0),
         getJackpotData(roundId),
-        getOptimisticEarlyBets(roundId),
         getProjectedJackpot(),
       ])
 
-      const totalUp = Math.max(onChain.up, optimistic.up)
-      const totalDown = Math.max(onChain.down, optimistic.down)
+      const totalUp = Math.max(onChain.up, roundState.up)
+      const totalDown = Math.max(onChain.down, roundState.down)
 
       const startAt = roundId * 60 * 1000
       const round = {
@@ -216,13 +214,13 @@ export async function GET(request: NextRequest) {
         priceDown: pd,
         serverNow: Date.now(),
         recentTrades,
-        openPrice: serverOpenPrice,
+        openPrice: roundState.openPrice,
         activeUsers,
-        kvConnected: optimistic._kvConnected ?? true,
+        kvConnected: roundState._kvConnected ?? true,
         jackpot: {
           balance: Math.max(jackpotOnChain.balance, projectedJackpot) / 1e6,
-          earlyUp: Math.max(jackpotOnChain.earlyUp, jackpotKV.earlyUp) / 1e6,
-          earlyDown: Math.max(jackpotOnChain.earlyDown, jackpotKV.earlyDown) / 1e6,
+          earlyUp: Math.max(jackpotOnChain.earlyUp, roundState.earlyUp) / 1e6,
+          earlyDown: Math.max(jackpotOnChain.earlyDown, roundState.earlyDown) / 1e6,
         },
         ok: true,
       })

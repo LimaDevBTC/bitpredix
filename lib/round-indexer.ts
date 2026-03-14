@@ -147,6 +147,10 @@ function getContractAddress(): string {
   return process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv2`
 }
 
+function getGatewayAddress(): string | null {
+  return process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID || null
+}
+
 // ============================================================================
 // REDIS CLIENT (lazy singleton)
 // ============================================================================
@@ -511,74 +515,93 @@ async function scanContractTransactions(): Promise<void> {
   }
 }
 
-async function doScan(now: number): Promise<void> {
-  try {
-    const contractAddress = getContractAddress()
-    let offset = 0
-    let pagesScanned = 0
-    let newTxs = 0
+async function scanAddress(address: string): Promise<number> {
+  let offset = 0
+  let pagesScanned = 0
+  let newTxs = 0
 
-    while (pagesScanned < MAX_PAGES_PER_SCAN) {
-      const { results } = await fetchContractTxs(contractAddress, SCAN_PAGE_SIZE, offset)
-      if (results.length === 0) break
+  while (pagesScanned < MAX_PAGES_PER_SCAN) {
+    const { results } = await fetchContractTxs(address, SCAN_PAGE_SIZE, offset)
+    if (results.length === 0) break
 
-      let allKnown = true
+    let allKnown = true
 
-      for (const tx of results) {
-        if (tx.tx_type !== 'contract_call') continue
-        if (!tx.contract_call) continue
+    for (const tx of results) {
+      if (tx.tx_type !== 'contract_call') continue
+      if (!tx.contract_call) continue
 
-        // Skip already indexed
-        if (knownTxIds.has(tx.tx_id)) continue
-        allKnown = false
+      // Skip already indexed
+      if (knownTxIds.has(tx.tx_id)) continue
+      allKnown = false
 
-        const fn = tx.contract_call.function_name
+      const fn = tx.contract_call.function_name
 
-        if (fn === 'place-bet') {
-          const parsed = parsePlaceBetTx(tx)
+      if (fn === 'place-bet') {
+        const parsed = parsePlaceBetTx(tx)
+        if (parsed) {
+          const round = ensureRound(parsed.roundId)
+          if (!round.bets.some((b) => b.txId === parsed.bet.txId)) {
+            round.bets.push(parsed.bet)
+            recalcRoundTotals(round)
+            newTxs++
+          }
+        }
+        // Always mark as known (even if parse fails) to avoid re-processing
+        knownTxIds.add(tx.tx_id)
+      }
+
+      if (fn === 'claim-round' || fn === 'claim-round-side' || fn === 'resolve-round' || fn === 'claim-on-behalf') {
+        // Always mark as known regardless of status
+        knownTxIds.add(tx.tx_id)
+        if (tx.tx_status === 'success') {
+          const parsed = parseClaimTx(tx)
           if (parsed) {
             const round = ensureRound(parsed.roundId)
-            if (!round.bets.some((b) => b.txId === parsed.bet.txId)) {
-              round.bets.push(parsed.bet)
-              recalcRoundTotals(round)
-              newTxs++
+            if (!round.resolved && parsed.priceStart > 0 && parsed.priceEnd > 0) {
+              round.priceStart = parsed.priceStart / 100
+              round.priceEnd = parsed.priceEnd / 100
+              round.resolved = true
+              round.outcome = parsed.priceEnd > parsed.priceStart ? 'UP' : 'DOWN'
+              round.lastUpdated = Date.now()
             }
-          }
-          // Always mark as known (even if parse fails) to avoid re-processing
-          knownTxIds.add(tx.tx_id)
-        }
-
-        if (fn === 'claim-round' || fn === 'claim-round-side' || fn === 'resolve-round' || fn === 'claim-on-behalf') {
-          // Always mark as known regardless of status
-          knownTxIds.add(tx.tx_id)
-          if (tx.tx_status === 'success') {
-            const parsed = parseClaimTx(tx)
-            if (parsed) {
-              const round = ensureRound(parsed.roundId)
-              if (!round.resolved && parsed.priceStart > 0 && parsed.priceEnd > 0) {
-                round.priceStart = parsed.priceStart / 100
-                round.priceEnd = parsed.priceEnd / 100
-                round.resolved = true
-                round.outcome = parsed.priceEnd > parsed.priceStart ? 'UP' : 'DOWN'
-                round.lastUpdated = Date.now()
-              }
-              newTxs++
-            }
+            newTxs++
           }
         }
       }
-
-      offset += SCAN_PAGE_SIZE
-      pagesScanned++
-
-      // If all txs on this page were already known, stop scanning
-      if (allKnown && initialScanDone) break
     }
+
+    offset += SCAN_PAGE_SIZE
+    pagesScanned++
+
+    // If all txs on this page were already known, stop scanning
+    if (allKnown && initialScanDone) break
+  }
+
+  return newTxs
+}
+
+async function doScan(now: number): Promise<void> {
+  try {
+    const contractAddress = getContractAddress()
+    const gatewayAddress = getGatewayAddress()
+    let newTxs = 0
+
+    // Scan main contract (claims, resolves) and gateway (place-bet) in parallel
+    const scanPromises: Promise<number>[] = [scanAddress(contractAddress)]
+    if (gatewayAddress && gatewayAddress !== contractAddress) {
+      scanPromises.push(scanAddress(gatewayAddress))
+    }
+    const results = await Promise.all(scanPromises)
+    newTxs = results.reduce((a, b) => a + b, 0)
 
     totalTxsIndexed += newTxs
 
-    // Scan mempool for pending bets (ephemeral — refreshed every scan)
-    await scanMempool(contractAddress)
+    // Scan mempool for pending bets on both contracts
+    const mempoolPromises = [scanMempool(contractAddress)]
+    if (gatewayAddress && gatewayAddress !== contractAddress) {
+      mempoolPromises.push(scanMempool(gatewayAddress))
+    }
+    await Promise.all(mempoolPromises)
 
     // Enrich unresolved rounds with on-chain data
     await enrichUnresolvedRounds()
