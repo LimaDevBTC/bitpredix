@@ -14,6 +14,15 @@ interface IndexedBet {
   amountUsd: number
   timestamp: number
   status: string
+  early?: boolean
+}
+
+interface JackpotData {
+  snapshot: number
+  earlyUp: number
+  earlyDown: number
+  distributed: number
+  locked: boolean
 }
 
 interface IndexedRound {
@@ -29,6 +38,7 @@ interface IndexedRound {
   priceEnd: number | null
   bets: IndexedBet[]
   participantCount: number
+  jackpot?: JackpotData
 }
 
 // ============================================================================
@@ -473,6 +483,31 @@ function RoundRow({
             <span>{(100 - upPct).toFixed(0)}% DOWN</span>
           </div>
 
+          {/* Jackpot data */}
+          {round.jackpot && round.jackpot.locked && (
+            <div className="mt-2 p-2.5 rounded-lg bg-bitcoin/5 border border-bitcoin/20">
+              <div className="text-[10px] text-bitcoin/70 font-medium uppercase tracking-wider mb-1.5">Velocity Jackpot</div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Snapshot:</span>
+                  <span className="text-zinc-300">${formatUsd(round.jackpot.snapshot / 1e6)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Distributed:</span>
+                  <span className="text-zinc-300">${formatUsd(round.jackpot.distributed / 1e6)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Early UP:</span>
+                  <span className="text-up">${formatUsd(round.jackpot.earlyUp / 1e6)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Early DOWN:</span>
+                  <span className="text-down">${formatUsd(round.jackpot.earlyDown / 1e6)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Participants table */}
           {round.bets.length > 0 && (
             <div className="mt-2">
@@ -518,6 +553,7 @@ function RoundRow({
                           bet.side === 'UP' ? 'text-up' : 'text-down'
                         }`}>
                           {bet.side}
+                          {bet.early && <span className="ml-1 text-[9px] text-bitcoin/70" title="Early bet (jackpot eligible)">V</span>}
                         </span>
 
                         {/* Amount */}

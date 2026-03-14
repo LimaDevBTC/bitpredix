@@ -10,6 +10,7 @@ interface IndexedBet {
   amountUsd: number
   timestamp: number
   status: string
+  early?: boolean
 }
 
 interface IndexedRound {

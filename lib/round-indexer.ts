@@ -22,6 +22,15 @@ export interface IndexedBet {
   amountUsd: number   // amount / 1e6
   timestamp: number   // block_time (unix seconds)
   status: 'success' | 'pending' | 'failed'
+  early: boolean      // bet placed in first 20s (jackpot eligible)
+}
+
+export interface JackpotData {
+  snapshot: number       // jackpot balance frozen on first claim (micro-units)
+  earlyUp: number        // total early UP bets (micro-units)
+  earlyDown: number      // total early DOWN bets (micro-units)
+  distributed: number    // total bonus paid out (micro-units)
+  locked: boolean        // true after first claim
 }
 
 export interface IndexedRound {
@@ -38,6 +47,7 @@ export interface IndexedRound {
   bets: IndexedBet[]
   participantCount: number
   lastUpdated: number
+  jackpot?: JackpotData
 }
 
 export interface WalletStats {
@@ -223,6 +233,9 @@ function parsePlaceBetTx(tx: HiroTx): { roundId: number; bet: IndexedBet } | nul
   const amount = parseUint(args[2].repr)
   if (isNaN(roundId) || isNaN(amount)) return null
 
+  // Gateway place-bet has 4th arg: early (bool)
+  const early = args.length >= 4 && args[3].repr === 'true'
+
   return {
     roundId,
     bet: {
@@ -233,6 +246,7 @@ function parsePlaceBetTx(tx: HiroTx): { roundId: number; bet: IndexedBet } | nul
       amountUsd: amount / 1e6,
       timestamp: tx.block_time,
       status: parseTxStatus(tx.tx_status),
+      early,
     },
   }
 }
@@ -428,6 +442,66 @@ async function enrichUnresolvedRounds(): Promise<void> {
   }
 }
 
+/**
+ * Enrich rounds with on-chain jackpot data from the round-jackpot map.
+ * Only fetches for resolved rounds that don't have jackpot data yet.
+ */
+async function enrichJackpotData(): Promise<void> {
+  const contractId = getContractAddress()
+  const [contractAddr, contractName] = contractId.split('.')
+  if (!contractAddr || !contractName) return
+
+  const roundsNeedingJackpot = [...roundsIndex.values()]
+    .filter((r) => r.resolved && !r.jackpot)
+    .sort((a, b) => b.roundId - a.roundId)
+    .slice(0, 10)
+
+  for (const round of roundsNeedingJackpot) {
+    try {
+      const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
+      const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(round.roundId) }))
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+
+      const res = await fetch(
+        `${HIRO_API}/v2/map_entry/${contractAddr}/${contractName}/round-jackpot?proof=0`,
+        {
+          method: 'POST',
+          headers: hiroHeaders(),
+          body: JSON.stringify(keyHex),
+          signal: controller.signal,
+        },
+      )
+      clearTimeout(timeoutId)
+
+      if (!res.ok) continue
+      const json = (await res.json()) as { data?: string }
+      if (!json.data) continue
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cv = deserializeCV(json.data) as any
+      const tuple = cv?.type === 'some' && cv?.value ? cv.value : cv
+      const d = tuple?.value ?? tuple?.data ?? cv?.value ?? cv?.data
+      if (!d) continue
+
+      const u = (k: string) => Number(d[k]?.value ?? 0)
+      const lockedField = d['locked']
+      const locked = lockedField?.type === 'true' || lockedField?.value === true || String(lockedField?.value) === 'true'
+
+      round.jackpot = {
+        snapshot: u('snapshot'),
+        earlyUp: u('early-up'),
+        earlyDown: u('early-down'),
+        distributed: u('distributed'),
+        locked,
+      }
+      round.lastUpdated = Date.now()
+    } catch {
+      // Skip — will retry next scan
+    }
+  }
+}
+
 // ============================================================================
 // REDIS CACHE — persist index across Vercel cold starts
 // ============================================================================
@@ -603,8 +677,9 @@ async function doScan(now: number): Promise<void> {
     }
     await Promise.all(mempoolPromises)
 
-    // Enrich unresolved rounds with on-chain data
+    // Enrich unresolved rounds with on-chain data + jackpot data
     await enrichUnresolvedRounds()
+    await enrichJackpotData()
 
     lastScanTimestamp = now
     initialScanDone = true
