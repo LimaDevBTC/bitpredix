@@ -58,13 +58,20 @@ interface LogEntry {
 // HELPERS
 // ---------------------------------------------------------------------------
 
-async function fetchJson(url: string, options: RequestInit = {}): Promise<Record<string, unknown>> {
-  const res = await fetch(url, {
-    ...options,
-    headers: { ...hiroHeaders(), ...(options.headers as Record<string, string>) },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`)
-  return res.json() as Promise<Record<string, unknown>>
+async function fetchJson(url: string, options: RequestInit = {}, retries = 2): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(url, {
+      ...options,
+      headers: { ...hiroHeaders(), ...(options.headers as Record<string, string>) },
+    })
+    if (res.status === 429 && attempt < retries) {
+      await sleep(500 * (attempt + 1))
+      continue
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`)
+    return res.json() as Promise<Record<string, unknown>>
+  }
+  throw new Error(`Exhausted retries for ${url}`)
 }
 
 function sleep(ms: number) {
@@ -542,15 +549,23 @@ export async function GET(req: Request) {
       }
 
       // Scan recent rounds — wide window to catch rounds stuck by Stacks block time lag
+      // Batched (5 at a time + 200ms delay) to avoid Hiro testnet rate limiting (429)
       const SCAN_BACK = 120
+      const BATCH_SIZE = 5
       const currentRoundId = Math.floor(Date.now() / 60000)
       const roundIds = Array.from({ length: SCAN_BACK }, (_, i) => currentRoundId - SCAN_BACK + i)
 
-      // Parallel scan: read all rounds at once to find ones with bets
-      const rounds = await Promise.all(roundIds.map(id => readRound(id).then(r => ({ id, round: r }))))
-      const activeIds = rounds
-        .filter(r => r.round && (r.round.totalUp + r.round.totalDown > 0))
-        .map(r => r.id)
+      const activeIds: number[] = []
+      for (let b = 0; b < roundIds.length; b += BATCH_SIZE) {
+        const batch = roundIds.slice(b, b + BATCH_SIZE)
+        const results = await Promise.all(batch.map(id => readRound(id).then(r => ({ id, round: r })).catch(() => ({ id, round: null }))))
+        for (const r of results) {
+          if (r.round && (r.round.totalUp + r.round.totalDown > 0)) {
+            activeIds.push(r.id)
+          }
+        }
+        if (b + BATCH_SIZE < roundIds.length) await sleep(200)
+      }
 
       logAndPrint({ action: 'scan', detail: `${SCAN_BACK} rounds checked, ${activeIds.length} with bets: [${activeIds.join(',')}]` })
 
