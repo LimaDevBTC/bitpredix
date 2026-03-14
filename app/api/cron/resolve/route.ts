@@ -343,16 +343,41 @@ async function processRound(
 ): Promise<number> {
   let currentNonce = nonce
 
-  // 1. Read round on-chain
+  const clog = (entry: LogEntry) => {
+    log.push(entry)
+    console.log(`[cron] R${roundId} ${entry.action}: ${entry.detail}${entry.txId ? ` tx=${entry.txId}` : ''}${entry.error ? ` ERR=${entry.error}` : ''}`)
+  }
+
+  // 1. Read round on-chain (re-read for fresh state since parallel scan may be stale)
   const round = await readRound(roundId)
   if (!round || (round.totalUp + round.totalDown === 0)) {
-    log.push({ action: 'skip', detail: `Round ${roundId}: empty or not found` })
     return currentNonce
   }
 
-  log.push({
-    action: 'read',
-    detail: `Round ${roundId}: UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)} resolved=${round.resolved}`,
+  // Quick check: if round is already resolved, verify if all bets are claimed
+  // to avoid unnecessary on-chain reads for old fully-processed rounds
+  if (round.resolved) {
+    const bettors = await readRoundBettors(roundId)
+    if (bettors.length === 0) {
+      return currentNonce
+    }
+    let allClaimed = true
+    for (const bettor of bettors) {
+      if (!allClaimed) break
+      const userBets = await readUserBets(roundId, bettor)
+      for (const side of ['UP', 'DOWN'] as const) {
+        const bet = side === 'UP' ? userBets.up : userBets.down
+        if (bet && !bet.claimed) { allClaimed = false; break }
+      }
+    }
+    if (allClaimed) {
+      return currentNonce
+    }
+  }
+
+  clog({
+    action: 'found',
+    detail: `UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)} resolved=${round.resolved}`,
   })
 
   let priceStart: number, priceEnd: number
@@ -364,12 +389,12 @@ async function processRound(
       priceStart = prices.priceStart
       priceEnd = prices.priceEnd
     } catch (e) {
-      log.push({ action: 'error', detail: `Round ${roundId}: Pyth prices unavailable`, error: String(e) })
+      clog({ action: 'error', detail: `Pyth prices unavailable`, error: String(e) })
       return currentNonce
     }
 
-    const outcome = priceEnd > priceStart ? 'UP' : 'DOWN'
-    log.push({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome}` })
+    const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
+    clog({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome}` })
 
     // 3. Try resolve-round (may fail on-chain if Stacks block time is behind)
     //    Even if this fails, claim-on-behalf has a safety net that resolves without block time check
@@ -387,27 +412,27 @@ async function processRound(
         }),
         currentNonce
       )
-      log.push({ action: 'resolve-round', detail: `Round ${roundId}`, txId })
+      clog({ action: 'resolve-round', detail: `broadcast ok`, txId })
       await waitForMempool(txId)
       currentNonce = nextNonce
     } catch (e) {
       // Don't return early — continue to claims which can resolve the round via safety net
-      log.push({ action: 'warn', detail: `resolve-round broadcast failed for ${roundId}, will try claim-on-behalf`, error: String(e) })
+      clog({ action: 'warn', detail: `resolve-round failed, will try claim-on-behalf`, error: String(e) })
     }
   } else {
     priceStart = round.priceStart
     priceEnd = round.priceEnd
-    log.push({ action: 'already-resolved', detail: `Round ${roundId}: start=${priceStart} end=${priceEnd}` })
+    clog({ action: 'already-resolved', detail: `start=${priceStart} end=${priceEnd}` })
   }
 
   // 4. Read bettors
   const bettors = await readRoundBettors(roundId)
   if (bettors.length === 0) {
-    log.push({ action: 'skip', detail: `Round ${roundId}: no bettors` })
+    clog({ action: 'skip', detail: `no bettors` })
     return currentNonce
   }
 
-  log.push({ action: 'bettors', detail: `${bettors.length} bettor(s) found` })
+  clog({ action: 'bettors', detail: `${bettors.length} bettor(s)` })
 
   // 5. Claim on behalf of each bettor
   let claimedAny = false
@@ -439,34 +464,27 @@ async function processRound(
           }),
           currentNonce
         )
-        log.push({ action: 'claim-on-behalf', detail: `${bettor.slice(0, 8)}... ${side}`, txId })
+        clog({ action: 'claim-on-behalf', detail: `${bettor.slice(0, 8)}... ${side}`, txId })
         await waitForMempool(txId)
         currentNonce = nextNonce
         claimedAny = true
       } catch (e) {
-        log.push({ action: 'error', detail: `claim-on-behalf ${bettor.slice(0, 8)}... ${side}`, error: String(e) })
+        clog({ action: 'error', detail: `claim-on-behalf ${bettor.slice(0, 8)}... ${side}`, error: String(e) })
       }
     }
   }
 
   // 6. Project jackpot balance for instant UI update
-  //    After claims, jackpot-balance on-chain changes by approximately:
-  //    +1% of total pool (jackpot fee from winning payouts)
-  //    -bonus distributed to early winners (from previous snapshot)
-  //    Net effect is roughly +1% of pool for the next round's display.
-  //    This projection is stored in Redis so the UI doesn't show stale data
-  //    while waiting for on-chain claim txs to confirm (~30s-2min).
   if (claimedAny && priceStart !== priceEnd) {
     try {
       const totalPool = round.totalUp + round.totalDown
       const jackpotFee = Math.floor(totalPool / 100) // 1% of total pool
-      // Read current on-chain balance as baseline
       const currentBalance = await readJackpotBalance()
       const projected = currentBalance + jackpotFee
       await setProjectedJackpot(projected)
-      log.push({ action: 'jackpot-projected', detail: `${currentBalance} + ${jackpotFee} = ${projected} (${(projected / 1e6).toFixed(2)} USDCx)` })
+      clog({ action: 'jackpot-projected', detail: `${currentBalance} + ${jackpotFee} = ${projected} (${(projected / 1e6).toFixed(2)} USDCx)` })
     } catch (e) {
-      log.push({ action: 'warn', detail: 'Failed to project jackpot', error: String(e) })
+      clog({ action: 'warn', detail: 'Failed to project jackpot', error: String(e) })
     }
   }
 
@@ -487,21 +505,27 @@ export async function GET(req: Request) {
   const log: LogEntry[] = []
   const startTime = Date.now()
 
+  // Helper: push to log array AND console.log for Vercel visibility
+  const logAndPrint = (entry: LogEntry) => {
+    log.push(entry)
+    console.log(`[cron] ${entry.action}: ${entry.detail}${entry.txId ? ` tx=${entry.txId}` : ''}${entry.error ? ` ERR=${entry.error}` : ''}`)
+  }
+
   try {
     // Init wallet
     const { privateKey, address } = await initWallet()
-    log.push({ action: 'init', detail: `Wallet: ${address}` })
+    logAndPrint({ action: 'init', detail: `Wallet: ${address}` })
 
     // Verify wallet matches contract DEPLOYER
     if (address !== CONTRACT_ADDRESS) {
-      log.push({ action: 'fatal', detail: `Wallet ${address} does NOT match DEPLOYER ${CONTRACT_ADDRESS}` })
+      logAndPrint({ action: 'fatal', detail: `Wallet ${address} does NOT match DEPLOYER ${CONTRACT_ADDRESS}` })
       return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
     }
 
     // Acquire sponsor lock so cron and sponsor endpoint don't compete for nonces
     const gotLock = await acquireSponsorLock(10000) // longer timeout for cron
     if (!gotLock) {
-      log.push({ action: 'skip', detail: 'Could not acquire sponsor lock (sponsor endpoint busy)' })
+      logAndPrint({ action: 'skip', detail: 'Could not acquire sponsor lock (sponsor endpoint busy)' })
       return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
     }
 
@@ -511,26 +535,35 @@ export async function GET(req: Request) {
       let nonce: number
       if (tracked) {
         nonce = Number(tracked.nonce)
-        log.push({ action: 'nonce', detail: `KV tracked nonce: ${nonce}` })
+        logAndPrint({ action: 'nonce', detail: `KV tracked nonce: ${nonce}` })
       } else {
         nonce = await getNonce(address)
-        log.push({ action: 'nonce', detail: `API nonce (no KV): ${nonce}` })
+        logAndPrint({ action: 'nonce', detail: `API nonce (no KV): ${nonce}` })
       }
 
-      // Scan recent rounds (last SCAN_BACK rounds) to catch any missed ones
-      const SCAN_BACK = 10
+      // Scan recent rounds — wide window to catch rounds stuck by Stacks block time lag
+      const SCAN_BACK = 60
       const currentRoundId = Math.floor(Date.now() / 60000)
+      const roundIds = Array.from({ length: SCAN_BACK }, (_, i) => currentRoundId - SCAN_BACK + i)
 
-      log.push({ action: 'scan', detail: `Rounds ${currentRoundId - SCAN_BACK} to ${currentRoundId - 1}` })
+      // Parallel scan: read all rounds at once to find ones with bets
+      const rounds = await Promise.all(roundIds.map(id => readRound(id).then(r => ({ id, round: r }))))
+      const activeIds = rounds
+        .filter(r => r.round && (r.round.totalUp + r.round.totalDown > 0))
+        .map(r => r.id)
 
-      for (let i = SCAN_BACK; i >= 1; i--) {
-        const roundId = currentRoundId - i
+      logAndPrint({ action: 'scan', detail: `${SCAN_BACK} rounds checked, ${activeIds.length} with bets: [${activeIds.join(',')}]` })
+
+      // Process only rounds that have bets (sequentially — needs nonce ordering)
+      for (const roundId of activeIds) {
         nonce = await processRound(roundId, nonce, privateKey, log)
       }
 
+      logAndPrint({ action: 'done', detail: `Processed ${activeIds.length} active rounds` })
+
       // Persist final nonce to KV so sponsor endpoint picks it up
       await setSponsorNonce(BigInt(nonce))
-      log.push({ action: 'nonce', detail: `KV nonce updated to ${nonce}` })
+      logAndPrint({ action: 'nonce', detail: `KV nonce updated to ${nonce}` })
     } catch (e) {
       // Clear stale nonce on error so sponsor endpoint re-fetches from API
       await clearSponsorNonce()
@@ -540,9 +573,10 @@ export async function GET(req: Request) {
     }
 
   } catch (e) {
-    log.push({ action: 'fatal', detail: 'Unhandled error', error: e instanceof Error ? e.message : String(e) })
+    logAndPrint({ action: 'fatal', detail: 'Unhandled error', error: e instanceof Error ? e.message : String(e) })
   }
 
   const duration = Date.now() - startTime
+  console.log(`[cron] Completed in ${duration}ms, ${log.length} log entries`)
   return NextResponse.json({ ok: true, duration, log })
 }
