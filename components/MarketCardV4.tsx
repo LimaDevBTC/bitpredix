@@ -88,7 +88,7 @@ export function MarketCardV4() {
   const [amount, setAmount] = useState('')
   const [trading, setTrading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [roundBets, setRoundBets] = useState<{ roundId: number; up: number; down: number } | null>(null)
+  const [roundBets, setRoundBets] = useState<{ roundId: number; up: number; down: number; earlyUp: number; earlyDown: number } | null>(null)
   const [stxAddress, setStxAddress] = useState<string | null>(null)
   const [btcPriceHistory, setBtcPriceHistory] = useState<BtcPricePoint[]>([])
   const [pool, setPool] = useState<PoolData | null>(null)
@@ -769,11 +769,13 @@ export function MarketCardV4() {
 
       // Sucesso — acumula apostas no round atual (functional updater to avoid stale closure)
       setRoundBets(prev => {
-        const base = (prev?.roundId === round.id) ? prev : { roundId: round.id, up: 0, down: 0 }
+        const base = (prev?.roundId === round.id) ? prev : { roundId: round.id, up: 0, down: 0, earlyUp: 0, earlyDown: 0 }
         return {
           roundId: round.id,
           up: base.up + (side === 'UP' ? v : 0),
           down: base.down + (side === 'DOWN' ? v : 0),
+          earlyUp: base.earlyUp + (isEarly && side === 'UP' ? v : 0),
+          earlyDown: base.earlyDown + (isEarly && side === 'DOWN' ? v : 0),
         }
       })
       setAmount('')
@@ -986,14 +988,26 @@ export function MarketCardV4() {
                         ? 'bg-orange-500'
                         : earlySecsLeft > 0 ? 'bg-yellow-500' : 'bg-bitcoin'
                     }`} />
-                    {roundBets.up > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-up/10 text-up text-xs font-mono font-medium shrink-0">
-                        ▲ ${roundBets.up}
+                    {/* Early (jackpot) bets */}
+                    {roundBets.earlyUp > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-500/15 text-yellow-400 text-xs font-mono font-medium shrink-0">
+                        ▲ ${roundBets.earlyUp}
                       </span>
                     )}
-                    {roundBets.down > 0 && (
+                    {roundBets.earlyDown > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-500/15 text-yellow-400 text-xs font-mono font-medium shrink-0">
+                        ▼ ${roundBets.earlyDown}
+                      </span>
+                    )}
+                    {/* Late (non-jackpot) bets */}
+                    {(roundBets.up - roundBets.earlyUp) > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-up/10 text-up text-xs font-mono font-medium shrink-0">
+                        ▲ ${roundBets.up - roundBets.earlyUp}
+                      </span>
+                    )}
+                    {(roundBets.down - roundBets.earlyDown) > 0 && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-down/10 text-down text-xs font-mono font-medium shrink-0">
-                        ▼ ${roundBets.down}
+                        ▼ ${roundBets.down - roundBets.earlyDown}
                       </span>
                     )}
                     {!hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0 ? (
