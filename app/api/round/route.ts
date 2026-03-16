@@ -1,7 +1,7 @@
 import { getOrCreateCurrentRound } from '@/lib/rounds'
 import { fetchBtcPriceUsd } from '@/lib/btc-price'
 import { getPriceUp, getPriceDown } from '@/lib/amm'
-import { getRoundState, getRecentTrades, heartbeatAndCount, getProjectedJackpot, getRoundBettorValidity } from '@/lib/pool-store'
+import { getRoundState, getRecentTrades, heartbeatAndCount, getProjectedJackpot, setProjectedJackpot, getRoundBettorValidity } from '@/lib/pool-store'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -210,6 +210,22 @@ export async function GET(request: NextRequest) {
 
       const totalUp = Math.max(onChain.up, roundState.up)
       const totalDown = Math.max(onChain.down, roundState.down)
+
+      // Early jackpot projection: when round is ending (<10s left) and is valid,
+      // preemptively project the next jackpot balance so the UI updates instantly
+      // instead of waiting for the cron resolver (which can take 10-30s).
+      const nowMs = Date.now()
+      const roundEndMs = (roundId + 1) * 60 * 1000
+      const secsLeft = (roundEndMs - nowMs) / 1000
+      if (secsLeft <= 10 && secsLeft > 0 && totalUp > 0 && totalDown > 0 && bettorValidity.hasCounterparty) {
+        const jackpotFee = Math.floor((totalUp + totalDown) / 100) // 1% of total pool
+        const currentBalance = Math.max(jackpotOnChain.balance, projectedJackpot)
+        const anticipated = currentBalance + jackpotFee
+        if (anticipated > projectedJackpot) {
+          // Fire-and-forget — don't block the response
+          setProjectedJackpot(anticipated).catch(() => {})
+        }
+      }
 
       const startAt = roundId * 60 * 1000
       const round = {

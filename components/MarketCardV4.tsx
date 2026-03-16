@@ -193,7 +193,19 @@ export function MarketCardV4() {
         fetchingOpenForRef.current = null
         setRoundBets(null)
         setPool(null)
-        setJackpot(null)
+        // Carry forward jackpot with anticipated increase from the valid round that just ended.
+        // If the round had bets on both sides with a valid counterparty, 1% of total pool
+        // will be added to the jackpot. Show this immediately instead of waiting for cron.
+        setJackpot(prev => {
+          if (!prev) return null
+          const pp = prevPool
+          if (pp && pp.totalUp > 0 && pp.totalDown > 0) {
+            const jackpotFee = (pp.totalUp + pp.totalDown) * 0.01
+            return { ...prev, balance: prev.balance + jackpotFee, earlyUp: 0, earlyDown: 0 }
+          }
+          // Round wasn't valid (one-sided or empty) — keep current balance, reset early
+          return { ...prev, earlyUp: 0, earlyDown: 0 }
+        })
         setIsEarlyBet(false)
         setHasCounterparty(true)
         setTradeTape([])
