@@ -1,0 +1,28 @@
+{
+  "name": "@predix/mcp-server",
+  "version": "0.1.0",
+  "description": "Predix Prediction Market - MCP Server for AI Agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "predix-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["predix", "prediction-market", "mcp", "stacks", "bitcoin", "aibtc", "ai-agent"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@stacks/transactions": "^7.0.0",
+    "@stacks/wallet-sdk": "^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,323 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Predix Agent API",
+    "description": "REST API for AI agents and bots to trade on the Predix prediction market. 1-minute BTC price rounds on Stacks testnet with zero gas fees.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    { "url": "https://predix.app", "description": "Production" }
+  ],
+  "paths": {
+    "/api/agent/market": {
+      "get": {
+        "summary": "Get current market state",
+        "description": "Returns complete market data: current round, pool sizes, odds, BTC price, payout multipliers, jackpot info, and contract details.",
+        "operationId": "getMarket",
+        "responses": {
+          "200": {
+            "description": "Market state",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MarketResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/opportunities": {
+      "get": {
+        "summary": "Get market signals and opportunities",
+        "description": "Returns computed signals: pool imbalance, price direction, volume level, jackpot info, recent outcome streaks.",
+        "operationId": "getOpportunities",
+        "responses": {
+          "200": {
+            "description": "Opportunities data",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OpportunitiesResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/build-tx": {
+      "post": {
+        "summary": "Build unsigned transaction",
+        "description": "Server builds an unsigned sponsored transaction. Agent signs locally with private key, then POSTs signed hex to /api/sponsor.",
+        "operationId": "buildTx",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BuildTxRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsigned transaction hex",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BuildTxResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sponsor": {
+      "post": {
+        "summary": "Submit signed transaction for sponsorship",
+        "description": "Validates, sponsors (adds gas), and broadcasts a signed transaction. Returns txid on success.",
+        "operationId": "sponsorTx",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["txHex"],
+                "properties": {
+                  "txHex": { "type": "string", "description": "Signed transaction hex" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction broadcast success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "txid": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/positions": {
+      "get": {
+        "summary": "Get agent positions and balance",
+        "description": "Returns active bets, pending claims, and USDCx token balance for a wallet address.",
+        "operationId": "getPositions",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Stacks wallet address"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Positions data",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PositionsResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/history": {
+      "get": {
+        "summary": "Get betting history and performance stats",
+        "description": "Returns win rate, P&L, ROI, and paginated bet history for a wallet address.",
+        "operationId": "getHistory",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": { "type": "integer", "default": 20, "maximum": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "History and stats",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HistoryResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "MarketResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "timestamp": { "type": "integer" },
+          "round": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer", "description": "Round ID (Unix timestamp / 60)" },
+              "startAt": { "type": "integer" },
+              "endsAt": { "type": "integer" },
+              "secondsRemaining": { "type": "integer" },
+              "tradingOpen": { "type": "boolean" },
+              "status": { "type": "string", "enum": ["open", "resolved"] },
+              "openPrice": { "type": "number", "nullable": true },
+              "currentPrice": { "type": "number", "nullable": true },
+              "priceChangePct": { "type": "number", "nullable": true },
+              "pool": {
+                "type": "object",
+                "properties": {
+                  "totalUp": { "type": "number", "description": "USD bet on UP" },
+                  "totalDown": { "type": "number", "description": "USD bet on DOWN" },
+                  "totalVolume": { "type": "number" },
+                  "oddsUp": { "type": "number" },
+                  "oddsDown": { "type": "number" }
+                }
+              },
+              "effectivePayoutUp": { "type": "number", "description": "Payout multiplier for UP bets" },
+              "effectivePayoutDown": { "type": "number", "description": "Payout multiplier for DOWN bets" }
+            }
+          },
+          "contract": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "gateway": { "type": "string" },
+              "token": { "type": "string" },
+              "minBetUsd": { "type": "number" },
+              "feeBps": { "type": "integer" },
+              "network": { "type": "string" }
+            }
+          }
+        }
+      },
+      "BuildTxRequest": {
+        "type": "object",
+        "required": ["action", "publicKey"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["place-bet", "claim", "approve", "mint"]
+          },
+          "publicKey": {
+            "type": "string",
+            "description": "Compressed public key hex (66 chars)"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "side": { "type": "string", "enum": ["UP", "DOWN"] },
+              "amount": { "type": "number", "minimum": 1 },
+              "roundId": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "BuildTxResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "txHex": { "type": "string", "description": "Unsigned transaction hex to sign locally" },
+          "action": { "type": "string" },
+          "details": { "type": "object" },
+          "instructions": { "type": "string" }
+        }
+      },
+      "PositionsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "address": { "type": "string" },
+          "balanceUsd": { "type": "number" },
+          "pendingRounds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "roundId": { "type": "integer" },
+                "up": { "type": "object", "nullable": true },
+                "down": { "type": "object", "nullable": true },
+                "resolved": { "type": "boolean" },
+                "outcome": { "type": "string", "nullable": true },
+                "estimatedPayout": { "type": "number", "nullable": true },
+                "claimable": { "type": "boolean" }
+              }
+            }
+          },
+          "activeRound": { "type": "object", "nullable": true }
+        }
+      },
+      "HistoryResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "address": { "type": "string" },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "totalBets": { "type": "integer" },
+              "wins": { "type": "integer" },
+              "losses": { "type": "integer" },
+              "winRate": { "type": "number" },
+              "totalVolumeUsd": { "type": "number" },
+              "totalPnlUsd": { "type": "number" },
+              "roi": { "type": "number" }
+            }
+          },
+          "bets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "roundId": { "type": "integer" },
+                "side": { "type": "string" },
+                "amountUsd": { "type": "number" },
+                "outcome": { "type": "string", "nullable": true },
+                "pnl": { "type": "number" },
+                "timestamp": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "OpportunitiesResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "round": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer" },
+              "tradingOpen": { "type": "boolean" },
+              "secondsRemaining": { "type": "integer" }
+            }
+          },
+          "signals": { "type": "object" },
+          "recentOutcomes": { "type": "array", "items": { "type": "string" } },
+          "streak": { "type": "object" }
+        }
+      }
+    }
+  }
+}
