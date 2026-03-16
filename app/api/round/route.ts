@@ -1,7 +1,7 @@
 import { getOrCreateCurrentRound } from '@/lib/rounds'
 import { fetchBtcPriceUsd } from '@/lib/btc-price'
 import { getPriceUp, getPriceDown } from '@/lib/amm'
-import { getRoundState, getRecentTrades, heartbeatAndCount, getProjectedJackpot } from '@/lib/pool-store'
+import { getRoundState, getRecentTrades, heartbeatAndCount, getProjectedJackpot, getRoundBettorValidity } from '@/lib/pool-store'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -198,13 +198,14 @@ export async function GET(request: NextRequest) {
       const roundId = Math.floor(Date.now() / 1000 / 60)
 
       // Fetch KV (single HGETALL for pool+open+early) and on-chain (slow, cached) in parallel
-      const [roundState, recentTrades, onChain, activeUsers, jackpotOnChain, projectedJackpot] = await Promise.all([
+      const [roundState, recentTrades, onChain, activeUsers, jackpotOnChain, projectedJackpot, bettorValidity] = await Promise.all([
         getRoundState(roundId),
         getRecentTrades(roundId),
         getOnChainData(roundId),
         sid ? heartbeatAndCount(sid) : Promise.resolve(0),
         getJackpotData(roundId),
         getProjectedJackpot(),
+        getRoundBettorValidity(roundId),
       ])
 
       const totalUp = Math.max(onChain.up, roundState.up)
@@ -244,6 +245,8 @@ export async function GET(request: NextRequest) {
           earlyUp: Math.max(jackpotOnChain.earlyUp, roundState.earlyUp) / 1e6,
           earlyDown: Math.max(jackpotOnChain.earlyDown, roundState.earlyDown) / 1e6,
         },
+        hasCounterparty: bettorValidity.hasCounterparty,
+        uniqueWallets: bettorValidity.uniqueWallets,
         ok: true,
       })
     }

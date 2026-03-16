@@ -94,6 +94,7 @@ export function MarketCardV4() {
   const [jackpot, setJackpot] = useState<{ balance: number; earlyUp: number; earlyDown: number } | null>(null)
   const [isEarlyBet, setIsEarlyBet] = useState(false)
   const [earlySecsLeft, setEarlySecsLeft] = useState(0)
+  const [hasCounterparty, setHasCounterparty] = useState(true)
   const [recentRounds, setRecentRounds] = useState<{ id: string; outcome: 'UP' | 'DOWN' }[]>([])
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null)
   const [tradeTape, setTradeTape] = useState<TradeTapeItem[]>([])
@@ -194,6 +195,7 @@ export function MarketCardV4() {
         setPool(null)
         setJackpot(null)
         setIsEarlyBet(false)
+        setHasCounterparty(true)
         setTradeTape([])
         tradeTapeTimersRef.current.forEach(clearTimeout)
         tradeTapeTimersRef.current = []
@@ -350,6 +352,11 @@ export function MarketCardV4() {
       // Extract jackpot data from poll response
       if (data.jackpot) {
         setJackpot(data.jackpot)
+      }
+
+      // Counterparty validation for jackpot eligibility
+      if (typeof data.hasCounterparty === 'boolean') {
+        setHasCounterparty(data.hasCounterparty)
       }
 
       // Trade tape from polling with dedup — generous 30s window to handle latency/clock skew
@@ -924,11 +931,17 @@ export function MarketCardV4() {
                 ) : roundBets && roundBets.roundId === round?.id && (roundBets.up > 0 || roundBets.down > 0) ? (
                   /* ── ACTIVE BETS ── */
                   <div className={`absolute inset-0 flex items-center gap-2 px-3 rounded-lg ${
-                    earlySecsLeft > 0
-                      ? 'bg-yellow-500/[0.04] border border-yellow-500/20'
-                      : 'bg-zinc-800/60 border border-zinc-700/40'
+                    !hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0
+                      ? 'bg-orange-500/[0.06] border border-orange-500/25'
+                      : earlySecsLeft > 0
+                        ? 'bg-yellow-500/[0.04] border border-yellow-500/20'
+                        : 'bg-zinc-800/60 border border-zinc-700/40'
                   }`}>
-                    <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${earlySecsLeft > 0 ? 'bg-yellow-500' : 'bg-bitcoin'}`} />
+                    <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+                      !hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0
+                        ? 'bg-orange-500'
+                        : earlySecsLeft > 0 ? 'bg-yellow-500' : 'bg-bitcoin'
+                    }`} />
                     {roundBets.up > 0 && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-up/10 text-up text-xs font-mono font-medium shrink-0">
                         ▲ ${roundBets.up}
@@ -939,7 +952,11 @@ export function MarketCardV4() {
                         ▼ ${roundBets.down}
                       </span>
                     )}
-                    {earlySecsLeft > 0 ? (
+                    {!hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0 ? (
+                      <span className="text-[10px] text-orange-400 font-bold truncate uppercase tracking-wider">
+                        No counterparty — Jackpot locked
+                      </span>
+                    ) : earlySecsLeft > 0 ? (
                       <span className="text-[10px] text-yellow-400/80 font-medium truncate">
                         Predict more for bigger Jackpot share — {earlySecsLeft}s
                       </span>
@@ -976,10 +993,22 @@ export function MarketCardV4() {
                   </div>
                 ) : (
                   /* ── TRADING CLOSED ── */
-                  <div className="absolute inset-0 flex items-center gap-2 px-3 bg-zinc-800/40 border border-zinc-700/30 rounded-lg">
-                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500/60" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                    <span className="text-sm text-amber-400/90 flex-1">Next round starting...</span>
+                  <div className={`absolute inset-0 flex items-center gap-2 px-3 rounded-lg ${
+                    !hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0
+                      ? 'bg-orange-500/[0.06] border border-orange-500/25'
+                      : 'bg-zinc-800/40 border border-zinc-700/30'
+                  }`}>
+                    <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+                      !hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0 ? 'bg-orange-500' : 'bg-amber-500/60'
+                    }`} />
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      !hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0 ? 'bg-orange-400' : 'bg-amber-400'
+                    }`} />
+                    {!hasCounterparty && pool && pool.totalUp > 0 && pool.totalDown > 0 ? (
+                      <span className="text-sm text-orange-400 font-bold flex-1 truncate">No counterparty — Jackpot locked</span>
+                    ) : (
+                      <span className="text-sm text-amber-400/90 flex-1">Next round starting...</span>
+                    )}
                     {JackpotBadge}
                   </div>
                 )}

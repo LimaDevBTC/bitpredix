@@ -15,6 +15,8 @@ import {
   addOptimisticBet,
   addOptimisticEarlyBet,
   trackRoundWithBets,
+  trackBettorSide,
+  getRoundBettorValidity,
 } from '@/lib/pool-store'
 
 // Contratos permitidos para sponsorship (predixv2 + gateway + token)
@@ -115,6 +117,29 @@ export async function POST(req: NextRequest) {
         { error: `Function ${functionName} not allowed for sponsorship` },
         { status: 403 }
       )
+    }
+
+    // --- COUNTERPARTY VALIDATION for claim functions ---
+    // Block sponsored claims on rounds where a single wallet bet both sides (jackpot exploit)
+    if (functionName === 'claim-round-side' || functionName === 'claim-on-behalf') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const claimArgs = (payload as any).functionArgs
+      // claim-round-side: (round-id, side, price-start, price-end) — roundId is arg[0]
+      // claim-on-behalf: (user, round-id, side, price-start, price-end) — roundId is arg[1]
+      const roundIdArgIdx = functionName === 'claim-on-behalf' ? 1 : 0
+      if (Array.isArray(claimArgs) && claimArgs.length > roundIdArgIdx) {
+        const roundId = Number(claimArgs[roundIdArgIdx]?.value ?? 0)
+        if (roundId > 0) {
+          const validity = await getRoundBettorValidity(roundId)
+          if (!validity.hasCounterparty && validity.upBettors > 0 && validity.downBettors > 0) {
+            console.log(`[sponsor] REJECTED ${functionName}: round=${roundId} has no counterparty (${validity.uniqueWallets} unique wallet(s), both sides have bets)`)
+            return NextResponse.json(
+              { error: 'Round without counterparty — Jackpot locked', reason: 'no_counterparty' },
+              { status: 403 }
+            )
+          }
+        }
+      }
     }
 
     // --- TIMING ENFORCEMENT + EARLY FLAG VALIDATION for place-bet ---
@@ -298,6 +323,13 @@ export async function POST(req: NextRequest) {
                 await addOptimisticBet(roundId, side as 'UP' | 'DOWN', amountMicro, result.txid as string)
                 await trackRoundWithBets(roundId)
                 console.log(`[sponsor] KV optimistic: round=${roundId} ${side} $${(amountMicro / 1e6).toFixed(2)} txid=${result.txid}`)
+
+                // Track wallet per side for counterparty validation (jackpot eligibility)
+                const signerHash = originAuth?.signer as string | undefined
+                if (signerHash) {
+                  await trackBettorSide(roundId, signerHash.toLowerCase(), side as 'UP' | 'DOWN')
+                  console.log(`[sponsor] Bettor tracked: round=${roundId} ${side} wallet=${signerHash.slice(0, 8)}...`)
+                }
 
                 // Track early bets for jackpot display (KV optimistic — real data is on-chain)
                 const earlyArg = Array.isArray(funcArgs) && funcArgs.length >= 4 &&

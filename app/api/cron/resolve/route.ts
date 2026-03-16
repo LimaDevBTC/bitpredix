@@ -22,6 +22,7 @@ import {
   getRoundsWithBets,
   removeResolvedRound,
   getActiveUserCount,
+  getRoundBettorValidity,
 } from '@/lib/pool-store'
 
 export const dynamic = 'force-dynamic'
@@ -451,6 +452,13 @@ async function processRound(
   }
 
   clog({ action: 'bettors', detail: `${bettors.length} bettor(s)` })
+
+  // 4.5 Counterparty validation — skip claims if single wallet bet both sides (jackpot exploit)
+  const validity = await getRoundBettorValidity(roundId)
+  if (!validity.hasCounterparty && validity.upBettors > 0 && validity.downBettors > 0) {
+    clog({ action: 'skip-no-counterparty', detail: `round=${roundId} has ${validity.uniqueWallets} unique wallet(s) on both sides — jackpot locked, skipping claims` })
+    return currentNonce
+  }
 
   // 5. Claim on behalf of each bettor
   let claimedAny = false

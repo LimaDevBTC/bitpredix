@@ -427,6 +427,84 @@ export async function getProjectedJackpot(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// Bettor tracking per side (SETs — for counterparty validation / jackpot)
+// ---------------------------------------------------------------------------
+
+/**
+ * Track that a wallet bet on a specific side of a round.
+ * Uses Redis SETs for unique-wallet counting.
+ */
+export async function trackBettorSide(
+  roundId: number,
+  walletHash: string,
+  side: 'UP' | 'DOWN',
+): Promise<void> {
+  const kv = getRedis()
+  if (!kv) return
+  try {
+    const key = side === 'UP' ? `bu:${roundId}` : `bd:${roundId}`
+    const pipe = kv.pipeline()
+    pipe.sadd(key, walletHash)
+    pipe.expire(key, 300)
+    await pipe.exec()
+    // Invalidate coalescing cache
+    _bettorCache = null
+  } catch (err) {
+    console.warn('[pool-store] trackBettorSide failed:', (err as Error).message)
+  }
+}
+
+export interface BettorValidity {
+  upBettors: number
+  downBettors: number
+  uniqueWallets: number
+  hasCounterparty: boolean
+}
+
+let _bettorCache: { roundId: number; data: BettorValidity; ts: number } | null = null
+
+/**
+ * Check if a round has valid counterparty bets (2+ distinct wallets on opposite sides).
+ * Required for jackpot eligibility.
+ */
+export async function getRoundBettorValidity(roundId: number): Promise<BettorValidity> {
+  const empty: BettorValidity = { upBettors: 0, downBettors: 0, uniqueWallets: 0, hasCounterparty: false }
+
+  if (_bettorCache && _bettorCache.roundId === roundId && Date.now() - _bettorCache.ts < COALESCE_TTL_MS) {
+    return _bettorCache.data
+  }
+
+  const kv = getRedis()
+  if (!kv) return empty
+
+  try {
+    const pipe = kv.pipeline()
+    pipe.smembers(`bu:${roundId}`)
+    pipe.smembers(`bd:${roundId}`)
+    const results = await pipe.exec()
+    const upMembers: string[] = (results[0] as string[]) || []
+    const downMembers: string[] = (results[1] as string[]) || []
+
+    const upSet = new Set(upMembers)
+    const downSet = new Set(downMembers)
+    const union = new Set([...upSet, ...downSet])
+
+    const data: BettorValidity = {
+      upBettors: upSet.size,
+      downBettors: downSet.size,
+      uniqueWallets: union.size,
+      hasCounterparty: upSet.size > 0 && downSet.size > 0 && union.size >= 2,
+    }
+
+    _bettorCache = { roundId, data, ts: Date.now() }
+    return data
+  } catch (err) {
+    console.warn('[pool-store] getRoundBettorValidity failed:', (err as Error).message)
+    return empty
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Rounds with bets (ZSET — cron reads this instead of scanning 120 on-chain)
 // ---------------------------------------------------------------------------
 
