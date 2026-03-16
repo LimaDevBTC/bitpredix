@@ -28,21 +28,6 @@ const ROUND_DURATION_MS = 60 * 1000  // 60 segundos
 const TRADING_WINDOW_MS = 50 * 1000  // Trading fecha 10s antes do fim do round
 const MIN_BET_USD = 1
 
-// Virtual seed liquidity — prevents cold-start pricing distortion.
-// With SEED=100, a $1 bet moves price ~0.5%, $100 moves ~25%.
-// This is purely cosmetic: payouts use real pool values only.
-const VIRTUAL_SEED_USD = 100
-
-/** Calculate display prices with virtual seed liquidity. */
-function calcSeededPrices(realUp: number, realDown: number) {
-  const effUp = VIRTUAL_SEED_USD + realUp
-  const effDown = VIRTUAL_SEED_USD + realDown
-  const total = effUp + effDown
-  return {
-    priceUp: effUp / total,
-    priceDown: effDown / total,
-  }
-}
 
 interface RoundInfo {
   id: number
@@ -79,8 +64,6 @@ interface RoundResult {
 interface PoolData {
   totalUp: number    // USD in UP pool
   totalDown: number  // USD in DOWN pool
-  priceUp: number    // 0-1 implied probability
-  priceDown: number  // 0-1 implied probability
 }
 
 export function MarketCardV4() {
@@ -373,8 +356,7 @@ export function MarketCardV4() {
         // Keep local max only if it's from our own un-synced optimistic update.
         const up = Math.max(qUp, prev?.totalUp ?? 0)
         const down = Math.max(qDown, prev?.totalDown ?? 0)
-        const { priceUp, priceDown } = calcSeededPrices(up, down)
-        return { totalUp: up, totalDown: down, priceUp, priceDown }
+        return { totalUp: up, totalDown: down }
       })
 
       // Extract jackpot data from poll response
@@ -792,8 +774,7 @@ export function MarketCardV4() {
       setPool(prev => {
         const up = (prev?.totalUp ?? 0) + (side === 'UP' ? v : 0)
         const down = (prev?.totalDown ?? 0) + (side === 'DOWN' ? v : 0)
-        const { priceUp, priceDown } = calcSeededPrices(up, down)
-        return { totalUp: up, totalDown: down, priceUp, priceDown }
+        return { totalUp: up, totalDown: down }
       })
 
       // Notify server so ALL clients see this bet via KV polling
