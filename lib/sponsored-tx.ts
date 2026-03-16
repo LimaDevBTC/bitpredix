@@ -58,7 +58,17 @@ export async function sponsoredContractCall(params: {
     txOptions.nonce = pendingNonce
   }
 
-  const unsignedTx = await makeUnsignedContractCall(txOptions)
+  let unsignedTx
+  try {
+    unsignedTx = await makeUnsignedContractCall(txOptions)
+  } catch (err) {
+    const msg = (err as Error).message || String(err)
+    // makeUnsignedContractCall fetches nonce from Hiro — can fail with network errors
+    if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network')) {
+      throw new Error('Network error building transaction. Please try again.')
+    }
+    throw err
+  }
   const txHex = unsignedTx.serialize()
 
   // 2. Pedir a wallet para assinar via stx_signTransaction (SIP-030 direto)
