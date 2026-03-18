@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   deserializeTransaction,
   sponsorTransaction,
-  broadcastTransaction,
   PayloadType,
 } from '@stacks/transactions'
 import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
 import { NETWORK_NAME, BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT } from '@/lib/config'
+import { HIRO_API, hiroHeaders } from '@/lib/hiro'
 import {
   getSponsorNonce,
   setSponsorNonce,
@@ -231,11 +231,36 @@ export async function POST(req: NextRequest) {
 
       let result: Record<string, unknown>
       try {
-        result = await broadcastTransaction({ transaction: sponsoredTx, network: NETWORK_NAME }) as Record<string, unknown>
+        const txBytes = sponsoredTx.serialize()
+        const broadcastRes = await fetch(`${HIRO_API}/v2/transactions`, {
+          method: 'POST',
+          headers: hiroHeaders({ 'Content-Type': 'application/octet-stream' }),
+          body: typeof txBytes === 'string' ? Buffer.from(txBytes, 'hex') : txBytes,
+        })
+        const responseText = await broadcastRes.text()
+        try {
+          result = JSON.parse(responseText)
+        } catch {
+          // Node returned non-JSON (HTML error page, etc.)
+          console.warn(`[sponsor] Non-JSON response (${broadcastRes.status}): ${responseText.slice(0, 200)}`)
+          if (attempt < MAX_RETRIES) {
+            await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+            continue
+          }
+          throw new Error(`Stacks node returned non-JSON response (HTTP ${broadcastRes.status})`)
+        }
+        // Successful broadcast returns a plain txid string (not JSON object)
+        if (broadcastRes.ok && typeof responseText === 'string' && !responseText.startsWith('{')) {
+          // Clean txid — the node returns the raw txid as a JSON string (with quotes)
+          const txid = responseText.replace(/^"|"$/g, '').trim()
+          if (txid.startsWith('0x') || /^[0-9a-f]{64}$/i.test(txid)) {
+            result = { txid }
+          }
+        }
       } catch (broadcastErr) {
         const msg = broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr)
         console.warn(`[sponsor] Broadcast exception attempt ${attempt}: ${msg}`)
-        if (attempt < MAX_RETRIES && msg.includes('parse')) {
+        if (attempt < MAX_RETRIES && (msg.includes('fetch') || msg.includes('ECONNREFUSED'))) {
           await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
           continue
         }
