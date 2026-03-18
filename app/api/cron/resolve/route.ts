@@ -414,7 +414,7 @@ async function processRound(
       clog({ action: 'warn', detail: 'Jackpot ticket credit failed (non-fatal)', error: String(e) })
     }
 
-    // 6. Dispatch webhook events (fire and forget)
+    // Dispatch webhook events (fire and forget)
     const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
     dispatchWebhookEvent('round.resolved', {
       roundId,

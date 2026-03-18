@@ -2,21 +2,28 @@
  * HTTP client for Predix Agent REST API
  */
 
-const DEFAULT_API_URL = 'https://predix.app'
+const DEFAULT_API_URL = 'https://bitpredix.vercel.app'
 
 export function getApiUrl(): string {
   return process.env.PREDIX_API_URL || DEFAULT_API_URL
 }
 
+function getApiKey(): string | undefined {
+  return process.env.PREDIX_API_KEY
+}
+
 export async function fetchApi<T = unknown>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiUrl()}${path}`
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  })
+  const apiKey = getApiKey()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> || {}),
+  }
+  if (apiKey) {
+    headers['X-Predix-Key'] = apiKey
+  }
+
+  const res = await fetch(url, { ...options, headers })
   const data = await res.json()
   if (!res.ok || data.error) {
     throw new Error(data.error || `API error: ${res.status}`)
@@ -83,7 +90,7 @@ export interface PositionsResponse {
     resolved: boolean
     outcome: string | null
     estimatedPayout: number | null
-    claimable: boolean
+    won: boolean
   }>
   activeRound: {
     roundId: number

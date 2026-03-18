@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAgentAuth } from '@/lib/agent-auth'
 import { getRoundState, getRoundBettorValidity, getProjectedJackpot } from '@/lib/pool-store'
 // Server-safe Pyth price fetch (can't import lib/pyth.ts — has React hooks)
 const PYTH_BTC_USD_FEED = 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43'
@@ -21,20 +22,13 @@ export const fetchCache = 'force-no-store'
 const VIRTUAL_SEED = 100 * 1e6
 const FEE_BPS = 300
 
+import { BITPREDIX_CONTRACT, splitContractId } from '@/lib/config'
 import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
-
-const DEPLOYER = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
-const PREDIXV2_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv2`
-
-function splitContractId(id: string): [string, string] {
-  const i = id.lastIndexOf('.')
-  return [id.slice(0, i), id.slice(i + 1)]
-}
 
 // On-chain round data (same as market endpoint)
 async function getOnChainRound(roundId: number) {
   try {
-    const [addr, name] = splitContractId(PREDIXV2_ID)
+    const [addr, name] = splitContractId(BITPREDIX_CONTRACT)
     const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
     const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId) }))
     let res = await fetch(
@@ -63,8 +57,9 @@ async function getOnChainRound(roundId: number) {
   }
 }
 
-export async function GET() {
-  try {
+export const GET = (req: NextRequest) =>
+  withAgentAuth(req, async () => {
+    try {
     const now = Date.now()
     const roundId = Math.floor(now / 1000 / 60)
     const endsAt = (roundId + 1) * 60 * 1000
@@ -171,8 +166,8 @@ export async function GET() {
     }, {
       headers: { 'Cache-Control': 'no-store, max-age=0' },
     })
-  } catch (err) {
-    console.error('[agent/opportunities] Error:', err)
-    return NextResponse.json({ ok: false, error: 'Failed to compute opportunities' }, { status: 500 })
-  }
-}
+    } catch (err) {
+      console.error('[agent/opportunities] Error:', err)
+      return NextResponse.json({ ok: false, error: 'Failed to compute opportunities' }, { status: 500 })
+    }
+  })

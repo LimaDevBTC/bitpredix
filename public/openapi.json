@@ -6,7 +6,7 @@
     "version": "0.1.0"
   },
   "servers": [
-    { "url": "https://predix.app", "description": "Production" }
+    { "url": "https://bitpredix.vercel.app", "description": "Production (testnet)" }
   ],
   "paths": {
     "/api/agent/market": {
@@ -107,7 +107,7 @@
     "/api/agent/positions": {
       "get": {
         "summary": "Get agent positions and balance",
-        "description": "Returns active bets, pending claims, and USDCx token balance for a wallet address.",
+        "description": "Returns active bets, pending rounds, and USDCx token balance for a wallet address. Settlement is automatic -- no claim needed.",
         "operationId": "getPositions",
         "parameters": [
           {
@@ -164,9 +164,97 @@
           }
         }
       }
+    },
+    "/api/agent/register": {
+      "post": {
+        "summary": "Register agent and get API key",
+        "description": "Prove wallet ownership via Stacks signature to receive an API key (pk_live_...). Key is shown once.",
+        "operationId": "registerAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["wallet", "signature", "message"],
+                "properties": {
+                  "wallet": { "type": "string", "description": "Stacks address (ST...)" },
+                  "signature": { "type": "string", "description": "Signed message hex" },
+                  "message": { "type": "string", "description": "Predix Agent Registration {timestamp}" },
+                  "name": { "type": "string", "maxLength": 32 },
+                  "description": { "type": "string", "maxLength": 200 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Registration success with API key" }
+        }
+      }
+    },
+    "/api/agent/leaderboard": {
+      "get": {
+        "summary": "Agent leaderboard",
+        "description": "Public ranking of registered agents. Sort by pnl, winRate, volume, or roi.",
+        "operationId": "getAgentLeaderboard",
+        "parameters": [
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["pnl", "winRate", "volume", "roi"], "default": "pnl" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "pageSize", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": { "200": { "description": "Leaderboard entries" } }
+      }
+    },
+    "/api/agent/stats": {
+      "get": {
+        "summary": "Agent ecosystem stats",
+        "description": "Global stats: total agents, active agents 24h, total volume.",
+        "operationId": "getAgentStats",
+        "responses": { "200": { "description": "Ecosystem stats" } }
+      }
+    },
+    "/api/agent/webhooks": {
+      "post": {
+        "summary": "Create webhook",
+        "description": "Subscribe to events (round.resolved, bet.confirmed, etc). Max 5 per agent.",
+        "operationId": "createWebhook",
+        "security": [{ "AgentApiKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url", "events"],
+                "properties": {
+                  "url": { "type": "string", "description": "HTTPS webhook URL" },
+                  "events": { "type": "array", "items": { "type": "string" } },
+                  "secret": { "type": "string", "description": "Optional HMAC secret" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Webhook created with secret" } }
+      },
+      "get": {
+        "summary": "List webhooks",
+        "operationId": "listWebhooks",
+        "security": [{ "AgentApiKey": [] }],
+        "responses": { "200": { "description": "List of agent webhooks" } }
+      }
     }
   },
   "components": {
+    "securitySchemes": {
+      "AgentApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Predix-Key",
+        "description": "Agent API key (pk_live_...). Register at POST /api/agent/register."
+      }
+    },
     "schemas": {
       "MarketResponse": {
         "type": "object",
@@ -218,7 +306,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["place-bet", "claim", "approve", "mint"]
+            "enum": ["place-bet", "approve", "mint"]
           },
           "publicKey": {
             "type": "string",
@@ -261,7 +349,7 @@
                 "resolved": { "type": "boolean" },
                 "outcome": { "type": "string", "nullable": true },
                 "estimatedPayout": { "type": "number", "nullable": true },
-                "claimable": { "type": "boolean" }
+                "won": { "type": "boolean", "description": "Whether the agent won this round (settlement is automatic)" }
               }
             }
           },

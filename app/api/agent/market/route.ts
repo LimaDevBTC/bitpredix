@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAgentAuth } from '@/lib/agent-auth'
 import { getRoundState, getRecentTrades, getRoundBettorValidity, getProjectedJackpot } from '@/lib/pool-store'
 // Direct Pyth fetch (can't import from lib/pyth.ts — it has React hooks which break server routes)
 const PYTH_BTC_USD_FEED = 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43'
@@ -20,20 +21,11 @@ async function fetchBtcPrice(): Promise<number | null> {
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
-const DEPLOYER = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
-const PREDIXV2_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv2`
-const GATEWAY_ID = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID || `${DEPLOYER}.predixv2-gateway`
-const USDCX_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || `${DEPLOYER}.test-usdcx`
+import { BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT, NETWORK_NAME, splitContractId } from '@/lib/config'
+import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
 
 const VIRTUAL_SEED = 100 * 1e6 // $100 virtual seed liquidity (micro-units)
 const FEE_BPS = 300
-
-import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
-
-function splitContractId(id: string): [string, string] {
-  const i = id.lastIndexOf('.')
-  return [id.slice(0, i), id.slice(i + 1)]
-}
 
 // On-chain round data (cached 5s)
 let onChainCache: { roundId: number; up: number; down: number; resolved: boolean; priceStart: number; priceEnd: number; ts: number } | null = null
@@ -43,7 +35,7 @@ async function getOnChainRound(roundId: number) {
     return onChainCache
   }
   try {
-    const [addr, name] = splitContractId(PREDIXV2_ID)
+    const [addr, name] = splitContractId(BITPREDIX_CONTRACT)
     const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
     const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId) }))
     let res = await fetch(
@@ -77,8 +69,9 @@ async function getOnChainRound(roundId: number) {
   }
 }
 
-export async function GET() {
-  try {
+export const GET = (req: NextRequest) =>
+  withAgentAuth(req, async () => {
+    try {
     const now = Date.now()
     const roundId = Math.floor(now / 1000 / 60)
     const startAt = roundId * 60 * 1000
@@ -148,19 +141,19 @@ export async function GET() {
         },
       },
       contract: {
-        id: PREDIXV2_ID,
-        gateway: GATEWAY_ID,
-        token: USDCX_ID,
+        id: BITPREDIX_CONTRACT,
+        gateway: GATEWAY_CONTRACT,
+        token: TOKEN_CONTRACT,
         minBetUsd: 1,
         feeBps: FEE_BPS,
         roundDurationSec: 60,
-        network: 'testnet',
+        network: NETWORK_NAME,
       },
     }, {
       headers: { 'Cache-Control': 'no-store, max-age=0' },
     })
-  } catch (err) {
-    console.error('[agent/market] Error:', err)
-    return NextResponse.json({ ok: false, error: 'Failed to fetch market data' }, { status: 500 })
-  }
-}
+    } catch (err) {
+      console.error('[agent/market] Error:', err)
+      return NextResponse.json({ ok: false, error: 'Failed to fetch market data' }, { status: 500 })
+    }
+  })

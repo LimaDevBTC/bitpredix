@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWalletProfile } from '@/lib/round-indexer'
+import { withAgentAuth } from '@/lib/agent-auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-export async function GET(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get('address')
+export const GET = (req: NextRequest) =>
+  withAgentAuth(req, async () => {
+    const address = req.nextUrl.searchParams.get('address')
   if (!address) {
     return NextResponse.json({ ok: false, error: 'address query param required' }, { status: 400 })
   }
@@ -47,8 +49,8 @@ export async function GET(req: NextRequest) {
       page,
       pageSize,
     })
-  } catch (err) {
-    console.error('[agent/history] Error:', err)
-    return NextResponse.json({ ok: false, error: 'Failed to fetch history' }, { status: 500 })
-  }
-}
+    } catch (err) {
+      console.error('[agent/history] Error:', err)
+      return NextResponse.json({ ok: false, error: 'Failed to fetch history' }, { status: 500 })
+    }
+  }, { requireAuth: true })

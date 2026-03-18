@@ -1,0 +1,30 @@
+{
+  "name": "@predix/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Predix prediction market",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["predix", "prediction-market", "stacks", "bitcoin", "sdk"],
+  "dependencies": {
+    "@stacks/transactions": "^7.0.0",
+    "@stacks/wallet-sdk": "^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

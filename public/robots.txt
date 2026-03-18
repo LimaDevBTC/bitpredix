@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /.well-known/
+Allow: /openapi.json
+Allow: /api/agent/
+Disallow: /api/cron/
+Disallow: /api/sponsor

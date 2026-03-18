@@ -1,6 +1,6 @@
 {
-  "name": "@predix/mcp-server",
-  "version": "0.1.0",
+  "name": "@predix/mcp",
+  "version": "0.2.0",
   "description": "Predix Prediction Market - MCP Server for AI Agents",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +16,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@stacks/transactions": "^7.0.0",
-    "@stacks/wallet-sdk": "^7.0.0"
+    "@stacks/wallet-sdk": "^7.0.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

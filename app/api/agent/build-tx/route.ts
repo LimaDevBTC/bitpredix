@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   buildPlaceBetTx,
-  buildClaimTx,
   buildApproveTx,
   buildMintTx,
 } from '@/lib/agent-tx-builder'
+import { withAgentAuth, checkBetLimit } from '@/lib/agent-auth'
 
 export const dynamic = 'force-dynamic'
 
-const VALID_ACTIONS = ['place-bet', 'claim', 'approve', 'mint'] as const
+const VALID_ACTIONS = ['place-bet', 'approve', 'mint'] as const
 type Action = typeof VALID_ACTIONS[number]
 
-export async function POST(req: NextRequest) {
-  try {
+export const POST = (req: NextRequest) =>
+  withAgentAuth(req, async (_req, agent) => {
+    try {
     const body = await req.json()
     const { action, publicKey, params } = body as {
       action?: string
@@ -45,6 +46,17 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: false, error: 'params.amount must be >= 1 (USD)' }, { status: 400 })
         }
         const roundId = params?.roundId ? Number(params.roundId) : undefined
+        const rid = roundId ?? Math.floor(Date.now() / 1000 / 60)
+
+        // Enforce bet-per-round limit
+        const betCheck = await checkBetLimit(agent, rid)
+        if (!betCheck.allowed) {
+          return NextResponse.json(
+            { ok: false, error: `Bet limit reached for this round (${betCheck.limit} bets/${agent.tier} tier)` },
+            { status: 429 },
+          )
+        }
+
         const result = await buildPlaceBetTx(publicKey, side as 'UP' | 'DOWN', amount, roundId)
         return NextResponse.json({
           ok: true,
@@ -52,25 +64,6 @@ export async function POST(req: NextRequest) {
           action: 'place-bet',
           details: result.details,
           instructions: 'Sign this transaction with your private key using @stacks/transactions signStructuredTransaction(), then POST the signed hex to /api/sponsor as { "txHex": "<signed-hex>" }',
-        })
-      }
-
-      case 'claim': {
-        const roundId = Number(params?.roundId)
-        if (!roundId || roundId <= 0) {
-          return NextResponse.json({ ok: false, error: 'params.roundId is required' }, { status: 400 })
-        }
-        const side = String(params?.side ?? '').toUpperCase()
-        if (side !== 'UP' && side !== 'DOWN') {
-          return NextResponse.json({ ok: false, error: 'params.side must be UP or DOWN' }, { status: 400 })
-        }
-        const result = await buildClaimTx(publicKey, roundId, side as 'UP' | 'DOWN')
-        return NextResponse.json({
-          ok: true,
-          txHex: result.txHex,
-          action: 'claim',
-          details: result.details,
-          instructions: 'Sign this transaction with your private key, then POST the signed hex to /api/sponsor as { "txHex": "<signed-hex>" }',
         })
       }
 
@@ -96,9 +89,9 @@ export async function POST(req: NextRequest) {
         })
       }
     }
-  } catch (err) {
-    console.error('[agent/build-tx] Error:', err)
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
-  }
-}
+    } catch (err) {
+      console.error('[agent/build-tx] Error:', err)
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      return NextResponse.json({ ok: false, error: message }, { status: 500 })
+    }
+  }, { requireAuth: true })

@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { BITPREDIX_CONTRACT, TOKEN_CONTRACT, splitContractId } from '@/lib/config'
 import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
+import { withAgentAuth } from '@/lib/agent-auth'
 
 export const dynamic = 'force-dynamic'
 
-const DEPLOYER = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
-const PREDIXV2_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv2`
-
-function splitContractId(id: string): [string, string] {
-  const i = id.lastIndexOf('.')
-  return [id.slice(0, i), id.slice(i + 1)]
-}
-
 async function callReadOnly(functionName: string, args: string[]): Promise<unknown> {
-  const [addr, name] = splitContractId(PREDIXV2_ID)
+  const [addr, name] = splitContractId(BITPREDIX_CONTRACT)
   let res = await fetch(
     `${HIRO_API}/v2/contracts/call-read/${addr}/${name}/${functionName}`,
     {
@@ -45,29 +39,26 @@ async function callReadOnly(functionName: string, args: string[]): Promise<unkno
 
 async function getBalance(address: string): Promise<number> {
   try {
+    const [tokenAddr, tokenName] = splitContractId(TOKEN_CONTRACT)
     const { cvToHex, standardPrincipalCV } = await import('@stacks/transactions')
-    let res = await fetch(
-      `${HIRO_API}/v2/contracts/call-read/${DEPLOYER}/test-usdcx/get-balance`,
-      {
-        method: 'POST',
-        headers: { ...hiroHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sender: DEPLOYER, arguments: [cvToHex(standardPrincipalCV(address))] }),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(6000),
-      }
-    )
+    const balanceUrl = `${HIRO_API}/v2/contracts/call-read/${tokenAddr}/${tokenName}/get-balance`
+    const balanceBody = JSON.stringify({ sender: tokenAddr, arguments: [cvToHex(standardPrincipalCV(address))] })
+    let res = await fetch(balanceUrl, {
+      method: 'POST',
+      headers: { ...hiroHeaders(), 'Content-Type': 'application/json' },
+      body: balanceBody,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    })
     if (res.status === 429) {
       disableApiKey()
-      res = await fetch(
-        `${HIRO_API}/v2/contracts/call-read/${DEPLOYER}/test-usdcx/get-balance`,
-        {
-          method: 'POST',
-          headers: { ...hiroHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sender: DEPLOYER, arguments: [cvToHex(standardPrincipalCV(address))] }),
-          cache: 'no-store',
-          signal: AbortSignal.timeout(6000),
-        }
-      )
+      res = await fetch(balanceUrl, {
+        method: 'POST',
+        headers: { ...hiroHeaders(), 'Content-Type': 'application/json' },
+        body: balanceBody,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(6000),
+      })
     }
     const json = await res.json()
     if (!json.okay || !json.result) return 0
@@ -80,8 +71,9 @@ async function getBalance(address: string): Promise<number> {
   }
 }
 
-export async function GET(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get('address')
+export const GET = (req: NextRequest) =>
+  withAgentAuth(req, async () => {
+    const address = req.nextUrl.searchParams.get('address')
   if (!address) {
     return NextResponse.json({ ok: false, error: 'address query param required' }, { status: 400 })
   }
@@ -110,7 +102,7 @@ export async function GET(req: NextRequest) {
           const upKeyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId), user: standardPrincipalCV(address), side: stringAsciiCV('UP') }))
           const downKeyHex = cvToHex(tupleCV({ 'round-id': uintCV(roundId), user: standardPrincipalCV(address), side: stringAsciiCV('DOWN') }))
 
-          const [addr, name] = splitContractId(PREDIXV2_ID)
+          const [addr, name] = splitContractId(BITPREDIX_CONTRACT)
           const fetchMap = async (mapName: string, keyHex: string) => {
             let res = await fetch(
               `${HIRO_API}/v2/map_entry/${addr}/${name}/${mapName}?proof=0&tip=latest`,
@@ -169,10 +161,10 @@ export async function GET(req: NextRequest) {
             }
           }
 
-          const claimable = resolved && (
-            (outcome === 'UP' && up && !up.claimed) ||
-            (outcome === 'DOWN' && down && !down.claimed) ||
-            (outcome === 'TIE' && ((up && !up.claimed) || (down && !down.claimed)))
+          const won = resolved && (
+            (outcome === 'UP' && !!up) ||
+            (outcome === 'DOWN' && !!down) ||
+            (outcome === 'TIE' && (!!up || !!down))
           )
 
           return {
@@ -182,10 +174,10 @@ export async function GET(req: NextRequest) {
             resolved,
             outcome,
             estimatedPayout: estimatedPayout ? Math.round(estimatedPayout * 100) / 100 : null,
-            claimable: !!claimable,
+            won: !!won,
           }
         } catch {
-          return { roundId, up: null, down: null, resolved: false, outcome: null, estimatedPayout: null, claimable: false }
+          return { roundId, up: null, down: null, resolved: false, outcome: null, estimatedPayout: null, won: false }
         }
       })
     )
@@ -194,7 +186,7 @@ export async function GET(req: NextRequest) {
     let activeRound = null
     try {
       const { deserializeCV } = await import('@stacks/transactions')
-      const [addr, name] = splitContractId(PREDIXV2_ID)
+      const [addr, name] = splitContractId(BITPREDIX_CONTRACT)
       const fetchBet = async (side: string) => {
         const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(currentRoundId), user: standardPrincipalCV(address), side: stringAsciiCV(side) }))
         const res = await fetch(
@@ -224,8 +216,8 @@ export async function GET(req: NextRequest) {
       pendingRounds: pendingRounds.filter(r => r.up || r.down),
       activeRound,
     })
-  } catch (err) {
-    console.error('[agent/positions] Error:', err)
-    return NextResponse.json({ ok: false, error: 'Failed to fetch positions' }, { status: 500 })
-  }
-}
+    } catch (err) {
+      console.error('[agent/positions] Error:', err)
+      return NextResponse.json({ ok: false, error: 'Failed to fetch positions' }, { status: 500 })
+    }
+  }, { requireAuth: true })
