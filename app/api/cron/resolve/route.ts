@@ -24,6 +24,7 @@ import {
   removeResolvedRound,
   getActiveUserCount,
   getRoundBettorValidity,
+  getEarlyBets,
 } from '@/lib/pool-store'
 
 export const dynamic = 'force-dynamic'
@@ -389,8 +390,17 @@ async function processRound(
     try {
       const validity = await getRoundBettorValidity(roundId)
       if (validity.hasCounterparty) {
-        await creditTicketsAfterSettlement(roundId.toString(), [])
-        clog({ action: 'jackpot-tickets', detail: `tickets credited (${validity.uniqueWallets} wallets, UP=${validity.upBettors} DOWN=${validity.downBettors})` })
+        const earlyBets = await getEarlyBets(roundId)
+        const betInfos = earlyBets.map(eb => ({
+          user: eb.user,
+          side: eb.side,
+          amountUsd: eb.amountUsd,
+          roundId: eb.roundId,
+          betTimestampS: eb.betTimestampS,
+          roundStartS: eb.roundStartS,
+        }))
+        await creditTicketsAfterSettlement(roundId.toString(), betInfos)
+        clog({ action: 'jackpot-tickets', detail: `tickets credited: ${betInfos.length} early bets (${validity.uniqueWallets} wallets, UP=${validity.upBettors} DOWN=${validity.downBettors})` })
       } else {
         clog({ action: 'jackpot-skip', detail: `no valid counterparty (${validity.uniqueWallets} unique wallets)` })
       }

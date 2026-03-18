@@ -380,9 +380,11 @@ export function MarketCardV4() {
         return { totalUp: up, totalDown: down }
       })
 
-      // Extract jackpot data from poll response
+      // Extract jackpot data from poll response — never overwrite with zero
       if (data.jackpot) {
-        setJackpot(data.jackpot)
+        setJackpot(prev =>
+          data.jackpot.balance > 0 || !prev ? data.jackpot : { ...prev, earlyUp: data.jackpot.earlyUp, earlyDown: data.jackpot.earlyDown }
+        )
       }
 
       // Counterparty validation for jackpot eligibility

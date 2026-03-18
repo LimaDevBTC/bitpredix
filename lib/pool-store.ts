@@ -383,6 +383,44 @@ export async function getOptimisticEarlyBets(roundId: number): Promise<{ earlyUp
 }
 
 // ---------------------------------------------------------------------------
+// Early bet list: persisted per round so cron can credit tickets
+// ---------------------------------------------------------------------------
+
+export interface EarlyBetEntry {
+  user: string
+  side: 'UP' | 'DOWN'
+  amountUsd: number
+  roundId: string
+  betTimestampS: number
+  roundStartS: number
+}
+
+export async function pushEarlyBet(roundId: number, entry: EarlyBetEntry): Promise<void> {
+  const kv = getRedis()
+  if (!kv) return
+  try {
+    const key = `early-bets:${roundId}`
+    await kv.rpush(key, JSON.stringify(entry))
+    await kv.expire(key, 300)
+  } catch (err) {
+    console.warn('[pool-store] pushEarlyBet failed (non-fatal):', (err as Error).message)
+  }
+}
+
+export async function getEarlyBets(roundId: number): Promise<EarlyBetEntry[]> {
+  const kv = getRedis()
+  if (!kv) return []
+  try {
+    const key = `early-bets:${roundId}`
+    const raw = await kv.lrange(key, 0, -1) as (string | EarlyBetEntry)[]
+    return raw.map(r => typeof r === 'string' ? JSON.parse(r) : r)
+  } catch (err) {
+    console.warn('[pool-store] getEarlyBets failed (non-fatal):', (err as Error).message)
+    return []
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Projected jackpot balance (optimistic, written by cron after claims)
 // ---------------------------------------------------------------------------
 

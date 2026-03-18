@@ -16,6 +16,8 @@ import {
   addOptimisticBet,
   trackRoundWithBets,
   trackBettorSide,
+  addOptimisticEarlyBet,
+  pushEarlyBet,
 } from '@/lib/pool-store'
 import { recordEarlyBet, isEarlyBet } from '@/lib/jackpot'
 import { alert } from '@/lib/alerting'
@@ -304,15 +306,20 @@ export async function POST(req: NextRequest) {
                 const betTimestampS = Math.floor(now / 1000)
                 const roundStartS = Math.floor(roundStartMs / 1000)
                 if (isEarlyBet(betTimestampS, roundStartS) && originSignerHash) {
-                  await recordEarlyBet({
+                  const earlyBetInfo = {
                     user: originSignerHash.toLowerCase(),
                     side: side as 'UP' | 'DOWN',
                     amountUsd: amountMicro / 1e6,
                     roundId: roundId.toString(),
                     betTimestampS,
                     roundStartS,
-                  })
-                  console.log(`[sponsor] Jackpot early bet tracked: round=${roundId} ${side}`)
+                  }
+                  await Promise.all([
+                    recordEarlyBet(earlyBetInfo),
+                    addOptimisticEarlyBet(roundId, side as 'UP' | 'DOWN', amountMicro),
+                    pushEarlyBet(roundId, earlyBetInfo),
+                  ])
+                  console.log(`[sponsor] Jackpot early bet tracked: round=${roundId} ${side} $${(amountMicro / 1e6).toFixed(2)}`)
                 }
               }
             }

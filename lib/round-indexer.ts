@@ -154,7 +154,7 @@ const SCAN_PAGE_SIZE = 50
 const MAX_PAGES_PER_SCAN = 20
 const MIN_SCAN_INTERVAL_MS = 30_000
 const FETCH_TIMEOUT = 12_000
-const REDIS_CACHE_KEY = 'indexer:cache:v1'
+const REDIS_CACHE_KEY = 'indexer:cache:v2'
 const REDIS_CACHE_TTL = 3600 // 1 hour
 
 function getContractAddress(): string {
@@ -228,6 +228,8 @@ function parseTxStatus(status: string): 'success' | 'pending' | 'failed' {
 // TRANSACTION PARSERS
 // ============================================================================
 
+const TICKET_WINDOW_S = 20
+
 function parsePlaceBetTx(tx: HiroTx): { roundId: number; bet: IndexedBet } | null {
   const args = tx.contract_call.function_args
   if (!args || args.length < 3) return null
@@ -239,8 +241,10 @@ function parsePlaceBetTx(tx: HiroTx): { roundId: number; bet: IndexedBet } | nul
   const amount = parseUint(args[2].repr)
   if (isNaN(roundId) || isNaN(amount)) return null
 
-  // Gateway place-bet has 4th arg: early (bool)
-  const early = args.length >= 4 && args[3].repr === 'true'
+  // Determine early status by timing: bet within first 20s of round
+  const roundStartS = roundId * 60
+  const elapsed = tx.block_time - roundStartS
+  const early = elapsed >= 0 && elapsed <= TICKET_WINDOW_S
 
   return {
     roundId,
@@ -464,62 +468,36 @@ async function enrichUnresolvedRounds(): Promise<void> {
 }
 
 /**
- * Enrich rounds with on-chain jackpot data from the round-jackpot map.
- * Only fetches for resolved rounds that don't have jackpot data yet.
+ * Compute jackpot data off-chain from early bets in each resolved round.
+ * predixv7 doesn't have a round-jackpot map — jackpot is 1% of total pool
+ * volume, and early bet pools are computed from bet timestamps.
  */
-async function enrichJackpotData(): Promise<void> {
-  const contractId = getContractAddress()
-  const [contractAddr, contractName] = contractId.split('.')
-  if (!contractAddr || !contractName) return
+function computeJackpotData(): void {
+  for (const round of roundsIndex.values()) {
+    if (!round.resolved || round.jackpot) continue
 
-  const roundsNeedingJackpot = [...roundsIndex.values()]
-    .filter((r) => r.resolved && !r.jackpot)
-    .sort((a, b) => b.roundId - a.roundId)
-    .slice(0, 10)
+    const activeBets = round.bets.filter(b => b.status === 'success')
+    const hasCounterparty = activeBets.some(b => b.side === 'UP') && activeBets.some(b => b.side === 'DOWN')
+    if (!hasCounterparty) continue
 
-  for (const round of roundsNeedingJackpot) {
-    try {
-      const { uintCV, tupleCV, cvToHex, deserializeCV } = await import('@stacks/transactions')
-      const keyHex = cvToHex(tupleCV({ 'round-id': uintCV(round.roundId) }))
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+    const earlyBets = activeBets.filter(b => b.early)
+    if (earlyBets.length === 0) continue
 
-      const res = await fetch(
-        `${HIRO_API}/v2/map_entry/${contractAddr}/${contractName}/round-jackpot?proof=0`,
-        {
-          method: 'POST',
-          headers: hiroHeaders(),
-          body: JSON.stringify(keyHex),
-          signal: controller.signal,
-        },
-      )
-      clearTimeout(timeoutId)
+    // Jackpot snapshot = 1% of total pool volume (micro-units)
+    const totalPoolMicro = activeBets.reduce((s, b) => s + b.amount, 0)
+    const snapshot = Math.floor(totalPoolMicro * 0.01)
 
-      if (!res.ok) continue
-      const json = (await res.json()) as { data?: string }
-      if (!json.data) continue
+    const earlyUp = earlyBets.filter(b => b.side === 'UP').reduce((s, b) => s + b.amount, 0)
+    const earlyDown = earlyBets.filter(b => b.side === 'DOWN').reduce((s, b) => s + b.amount, 0)
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cv = deserializeCV(json.data) as any
-      const tuple = cv?.type === 'some' && cv?.value ? cv.value : cv
-      const d = tuple?.value ?? tuple?.data ?? cv?.value ?? cv?.data
-      if (!d) continue
-
-      const u = (k: string) => Number(d[k]?.value ?? 0)
-      const lockedField = d['locked']
-      const locked = lockedField?.type === 'true' || lockedField?.value === true || String(lockedField?.value) === 'true'
-
-      round.jackpot = {
-        snapshot: u('snapshot'),
-        earlyUp: u('early-up'),
-        earlyDown: u('early-down'),
-        distributed: u('distributed'),
-        locked,
-      }
-      round.lastUpdated = Date.now()
-    } catch {
-      // Skip — will retry next scan
+    round.jackpot = {
+      snapshot,
+      earlyUp,
+      earlyDown,
+      distributed: snapshot, // fully distributed to early winners
+      locked: true,
     }
+    round.lastUpdated = Date.now()
   }
 }
 
@@ -698,9 +676,9 @@ async function doScan(now: number): Promise<void> {
     }
     await Promise.all(mempoolPromises)
 
-    // Enrich unresolved rounds with on-chain data + jackpot data
+    // Enrich unresolved rounds with on-chain data + compute jackpot from early bets
     await enrichUnresolvedRounds()
-    await enrichJackpotData()
+    computeJackpotData()
 
     lastScanTimestamp = now
     initialScanDone = true

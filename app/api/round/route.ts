@@ -117,13 +117,15 @@ async function getOnChainData(roundId: number): Promise<{ up: number; down: numb
 }
 
 // Jackpot is 100% off-chain in predixv3 — read from Redis
+// Cache last known balance so Hiro failures don't flash $0 on clients
+let lastKnownJackpotBalance = 0
 async function getJackpotData(_roundId: number): Promise<{ balance: number; earlyUp: number; earlyDown: number }> {
   try {
     const balance = await getJackpotBalance()
-    // Early bets tracked in KV by sponsor (roundState.earlyUp/Down still available)
-    return { balance, earlyUp: 0, earlyDown: 0 }
+    if (balance > 0) lastKnownJackpotBalance = balance
+    return { balance: balance > 0 ? balance : lastKnownJackpotBalance, earlyUp: 0, earlyDown: 0 }
   } catch {
-    return { balance: 0, earlyUp: 0, earlyDown: 0 }
+    return { balance: lastKnownJackpotBalance, earlyUp: 0, earlyDown: 0 }
   }
 }
 
