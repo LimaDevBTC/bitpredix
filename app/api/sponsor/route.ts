@@ -232,29 +232,33 @@ export async function POST(req: NextRequest) {
       let result: Record<string, unknown>
       try {
         const txHex = sponsoredTx.serialize()
+        // Convert hex string to Uint8Array (works in Edge/Node/Vercel runtimes)
+        const bytes = new Uint8Array(txHex.length / 2)
+        for (let i = 0; i < bytes.length; i++) {
+          bytes[i] = parseInt(txHex.substring(i * 2, i * 2 + 2), 16)
+        }
         const broadcastRes = await fetch(`${HIRO_API}/v2/transactions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
-          body: txHex,
+          body: bytes,
         })
         const responseText = await broadcastRes.text()
+        console.log(`[sponsor] Broadcast response (${broadcastRes.status}): ${responseText.slice(0, 300)}`)
         try {
           result = JSON.parse(responseText)
         } catch {
-          // Node returned non-JSON (HTML error page, etc.)
-          console.warn(`[sponsor] Non-JSON response (${broadcastRes.status}): ${responseText.slice(0, 200)}`)
-          if (attempt < MAX_RETRIES) {
-            await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
-            continue
-          }
-          throw new Error(`Stacks node returned non-JSON response (HTTP ${broadcastRes.status})`)
-        }
-        // Successful broadcast returns a plain txid string (not JSON object)
-        if (broadcastRes.ok && typeof responseText === 'string' && !responseText.startsWith('{')) {
-          // Clean txid — the node returns the raw txid as a JSON string (with quotes)
-          const txid = responseText.replace(/^"|"$/g, '').trim()
-          if (txid.startsWith('0x') || /^[0-9a-f]{64}$/i.test(txid)) {
-            result = { txid }
+          // Node returned plain text — could be a txid or an error message
+          const trimmed = responseText.replace(/^"|"$/g, '').trim()
+          if (broadcastRes.ok && (trimmed.startsWith('0x') || /^[0-9a-f]{64}$/i.test(trimmed))) {
+            result = { txid: trimmed }
+          } else {
+            // Real error from node in plain text
+            console.warn(`[sponsor] Non-JSON error (${broadcastRes.status}): ${responseText.slice(0, 300)}`)
+            if (attempt < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+              continue
+            }
+            throw new Error(trimmed || `Broadcast failed (HTTP ${broadcastRes.status})`)
           }
         }
       } catch (broadcastErr) {
