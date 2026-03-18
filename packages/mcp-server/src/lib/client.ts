@@ -2,7 +2,7 @@
  * HTTP client for Predix Agent REST API
  */
 
-const DEFAULT_API_URL = 'https://bitpredix.vercel.app'
+const DEFAULT_API_URL = 'https://www.predix.live'
 
 export function getApiUrl(): string {
   return process.env.PREDIX_API_URL || DEFAULT_API_URL
@@ -85,8 +85,8 @@ export interface PositionsResponse {
   balanceUsd: number
   pendingRounds: Array<{
     roundId: number
-    up: { amount: number; claimed: boolean } | null
-    down: { amount: number; claimed: boolean } | null
+    up: { amount: number } | null
+    down: { amount: number } | null
     resolved: boolean
     outcome: string | null
     estimatedPayout: number | null

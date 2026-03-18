@@ -15,7 +15,7 @@ import type {
 import { PredixError, TradingClosedError, RateLimitError, AuthenticationError } from './errors.js'
 import { getPublicKey, getAddress, signTransaction } from './signer.js'
 
-const DEFAULT_BASE_URL = 'https://bitpredix.vercel.app'
+const DEFAULT_BASE_URL = 'https://www.predix.live'
 
 export class PredixClient {
   private apiKey: string

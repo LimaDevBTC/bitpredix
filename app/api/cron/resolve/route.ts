@@ -424,6 +424,16 @@ async function processRound(
       totalVolume: (round.totalUp + round.totalDown) / 1e6,
     }).catch(() => {})
 
+    dispatchWebhookEvent('bet.result', {
+      roundId,
+      outcome,
+      priceStart,
+      priceEnd,
+      totalUp: round.totalUp / 1e6,
+      totalDown: round.totalDown / 1e6,
+      totalVolume: (round.totalUp + round.totalDown) / 1e6,
+    }).catch(() => {})
+
     return { nextNonce: currentNonce, resolved: true }
 
   } catch (e) {
@@ -454,6 +464,20 @@ export async function GET(req: Request) {
   try {
     const { privateKey, address } = await initWallet()
     logAndPrint({ action: 'init', detail: `Sponsor: ${address}` })
+
+    // Dispatch round lifecycle events (fire and forget)
+    const nowRoundId = Math.floor(Date.now() / 60000)
+    dispatchWebhookEvent('round.open', {
+      roundId: nowRoundId,
+      startsAt: nowRoundId * 60,
+      endsAt: (nowRoundId + 1) * 60,
+      tradingClosesAt: (nowRoundId + 1) * 60 - 10,
+    }).catch(() => {})
+
+    dispatchWebhookEvent('round.trading_closed', {
+      roundId: nowRoundId - 1,
+      closedAt: Math.floor(Date.now() / 1000),
+    }).catch(() => {})
 
     // Acquire sponsor lock
     const gotLock = await acquireSponsorLock(10000)

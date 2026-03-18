@@ -7,12 +7,21 @@
   "bin": {
     "predix-mcp": "dist/index.js"
   },
+  "files": ["dist", "README.md", "LICENSE"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prdx-live/predix"
+  },
+  "homepage": "https://www.predix.live/docs/agents",
+  "license": "MIT",
+  "author": "Predix <agents@predix.live>",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
   },
-  "keywords": ["predix", "prediction-market", "mcp", "stacks", "bitcoin", "aibtc", "ai-agent"],
+  "keywords": ["predix", "prediction-market", "mcp", "model-context-protocol", "stacks", "bitcoin", "aibtc", "ai-agent", "defi"],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@stacks/transactions": "^7.0.0",

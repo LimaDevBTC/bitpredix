@@ -18,6 +18,7 @@ import {
 import { NETWORK_NAME, GATEWAY_CONTRACT, splitContractId } from '@/lib/config'
 import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
 import { alert } from '@/lib/alerting'
+import { dispatchWebhookEvent } from '@/lib/agent-webhooks'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -108,6 +109,17 @@ export async function GET(req: Request) {
 
     // 10. Save draw result (after payment attempt, so txId/error is captured)
     await saveDrawResult(result)
+
+    // Dispatch webhook event (fire and forget)
+    dispatchWebhookEvent('jackpot.drawn', {
+      date: today,
+      winner,
+      prizeUsd: prize / 1e6,
+      totalTickets,
+      blockHash: block.hash,
+      blockHeight: block.height,
+      txId: txId || null,
+    }).catch(() => {})
 
     // 11. Log and alert
     console.info(`[JACKPOT] Draw complete: winner=${winner} prize=${(prize / 1e6).toFixed(2)} USDCx txId=${txId}`)

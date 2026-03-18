@@ -17,7 +17,7 @@
  *   predix://rules          — Trading rules and mechanics
  *
  * Config (env vars):
- *   PREDIX_API_URL       — Base URL (default: https://bitpredix.vercel.app)
+ *   PREDIX_API_URL       — Base URL (default: https://www.predix.live)
  *   PREDIX_API_KEY       — Agent API key (pk_live_...)
  *   STACKS_PRIVATE_KEY   — Agent's Stacks private key (hex)
  */

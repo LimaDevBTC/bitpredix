@@ -26,6 +26,10 @@ export async function GET() {
       positions: '/api/agent/positions',
       history: '/api/agent/history',
       sponsor: '/api/sponsor',
+      register: '/api/agent/register',
+      webhooks: '/api/agent/webhooks',
+      leaderboard: '/api/agent/leaderboard',
+      stats: '/api/agent/stats',
     },
     limits: {
       free_tier: '30 req/min',

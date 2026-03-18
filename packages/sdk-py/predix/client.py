@@ -8,6 +8,7 @@ Stacks signing requires a Node.js subprocess (no mature Python lib).
 
 import subprocess
 import json
+import os
 from typing import Optional
 
 import httpx
@@ -27,7 +28,7 @@ from predix.errors import (
     AuthenticationError,
 )
 
-DEFAULT_BASE_URL = "https://bitpredix.vercel.app"
+DEFAULT_BASE_URL = "https://www.predix.live"
 
 
 class PredixClient:
@@ -60,29 +61,32 @@ class PredixClient:
             self._address = self._derive_address()
         return self._address
 
-    def _derive_address(self) -> str:
-        """Derive Stacks address via Node.js subprocess. Private key passed via stdin."""
-        script = """
-const readline = require('readline');
-const rl = readline.createInterface({ input: process.stdin });
-rl.on('line', (pk) => {
-  const { getStxAddress } = require('@stacks/wallet-sdk');
-  const address = getStxAddress({ account: { stxPrivateKey: pk.trim(), dataPrivateKey: '', appsKey: '', salt: '', index: 0 }, network: '%s' });
-  console.log(address);
-  rl.close();
-});
-""" % self.network
+    def _signer_script_path(self) -> str:
+        return os.path.join(os.path.dirname(__file__), "_signer.js")
+
+    def _call_signer(self, action: str, **kwargs) -> dict:
+        """Single Node.js subprocess call for all signing operations."""
+        cmd = json.dumps({"action": action, "privateKey": self.private_key, **kwargs})
         try:
             result = subprocess.run(
-                ["node", "-e", script],
-                input=self.private_key,
-                capture_output=True, text=True, timeout=10,
+                ["node", self._signer_script_path()],
+                input=cmd,
+                capture_output=True, text=True, timeout=15,
             )
             if result.returncode != 0:
-                raise PredixError(f"Address derivation failed: {result.stderr.strip()}")
-            return result.stdout.strip()
+                raise PredixError(f"Signer failed: {result.stderr.strip()}")
+            data = json.loads(result.stdout.strip())
+            if "error" in data:
+                raise PredixError(f"Signer error: {data['error']}")
+            return data
         except FileNotFoundError:
-            raise PredixError("Node.js required for Stacks address derivation (install from nodejs.org)")
+            raise PredixError("Node.js required for Stacks signing (install from nodejs.org)")
+
+    def _derive_address(self) -> str:
+        """Derive Stacks address via unified Node.js signer. Also caches public key."""
+        data = self._call_signer("derive", network=self.network)
+        self._public_key = data["publicKey"]
+        return data["address"]
 
     def _request(self, method: str, path: str, **kwargs) -> dict:
         res = self._http.request(method, path, **kwargs)
@@ -165,46 +169,15 @@ rl.on('line', (pk) => {
         return TxResult(txid=sponsor_data["txid"])
 
     def _get_public_key(self) -> str:
-        script = """
-const readline = require('readline');
-const rl = readline.createInterface({ input: process.stdin });
-rl.on('line', (pk) => {
-  const { createStacksPrivateKey, pubKeyfromPrivKey, publicKeyToHex } = require('@stacks/transactions');
-  console.log(publicKeyToHex(pubKeyfromPrivKey(createStacksPrivateKey(pk.trim()))));
-  rl.close();
-});
-"""
-        result = subprocess.run(
-            ["node", "-e", script],
-            input=self.private_key,
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            raise PredixError(f"Public key derivation failed: {result.stderr.strip()}")
-        return result.stdout.strip()
+        if hasattr(self, "_public_key") and self._public_key:
+            return self._public_key
+        # derive also caches public key
+        self._derive_address()
+        return self._public_key
 
     def _sign_tx(self, tx_hex: str) -> str:
-        script = """
-const readline = require('readline');
-const rl = readline.createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  const [pk, hex] = line.split(' ');
-  const { deserializeTransaction, createStacksPrivateKey, TransactionSigner } = require('@stacks/transactions');
-  const tx = deserializeTransaction(hex);
-  const signer = new TransactionSigner(tx);
-  signer.signOrigin(createStacksPrivateKey(pk));
-  console.log(tx.serialize());
-  rl.close();
-});
-"""
-        result = subprocess.run(
-            ["node", "-e", script],
-            input=f"{self.private_key} {tx_hex}",
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            raise PredixError(f"Transaction signing failed: {result.stderr.strip()}")
-        return result.stdout.strip()
+        data = self._call_signer("sign", txHex=tx_hex)
+        return data["signedHex"]
 
     def close(self):
         self._http.close()

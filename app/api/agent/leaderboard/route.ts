@@ -7,11 +7,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { listAgentKeys } from '@/lib/agent-keys'
 import { getWalletProfile } from '@/lib/round-indexer'
+import { withAgentAuth } from '@/lib/agent-auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-export async function GET(req: NextRequest) {
+export const GET = (req: NextRequest) =>
+  withAgentAuth(req, async () => {
   const sort = req.nextUrl.searchParams.get('sort') || 'pnl'
   const page = Math.max(1, parseInt(req.nextUrl.searchParams.get('page') || '1'))
   const pageSize = Math.min(50, Math.max(1, parseInt(req.nextUrl.searchParams.get('pageSize') || '20')))
@@ -79,4 +81,4 @@ export async function GET(req: NextRequest) {
     console.error('[agent/leaderboard] Error:', err)
     return NextResponse.json({ ok: false, error: 'Failed to fetch leaderboard' }, { status: 500 })
   }
-}
+  }, { requireAuth: false })

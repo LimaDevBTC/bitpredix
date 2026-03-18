@@ -21,6 +21,7 @@ import {
 } from '@/lib/pool-store'
 import { recordEarlyBet, isEarlyBet } from '@/lib/jackpot'
 import { alert } from '@/lib/alerting'
+import { dispatchWebhookEvent } from '@/lib/agent-webhooks'
 
 // Contracts allowed for sponsorship (fail-fast — no fallbacks)
 const ALLOWED_CONTRACTS = [BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT]
@@ -294,6 +295,14 @@ export async function POST(req: NextRequest) {
                 await addOptimisticBet(roundId, side as 'UP' | 'DOWN', amountMicro, result.txid as string)
                 await trackRoundWithBets(roundId)
                 console.log(`[sponsor] KV optimistic: round=${roundId} ${side} $${(amountMicro / 1e6).toFixed(2)} txid=${result.txid}`)
+
+                // Dispatch webhook event (fire and forget)
+                dispatchWebhookEvent('bet.confirmed', {
+                  roundId,
+                  side,
+                  amountUsd: amountMicro / 1e6,
+                  txid: result.txid,
+                }).catch(() => {})
 
                 // Track wallet per side for counterparty validation
                 if (originSignerHash) {

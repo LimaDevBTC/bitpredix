@@ -142,8 +142,7 @@ export const GET = (req: NextRequest) =>
             if (!bet) return null
             const amount = Number(bet['amount']?.value ?? 0)
             if (amount === 0) return null
-            const claimed = bet['claimed']?.value === true || String(bet['claimed']?.value) === 'true'
-            return { amount: amount / 1e6, claimed }
+            return { amount: amount / 1e6 }
           }
 
           const up = parseBet(upBet)
@@ -154,9 +153,9 @@ export const GET = (req: NextRequest) =>
           if (resolved && outcome) {
             const totalPool = totalUp + totalDown
             const feeMul = 1 - 300 / 10000
-            if (outcome === 'UP' && up && !up.claimed) {
+            if (outcome === 'UP' && up) {
               estimatedPayout = (up.amount * 1e6 / (totalUp || 1)) * totalPool / 1e6 * feeMul
-            } else if (outcome === 'DOWN' && down && !down.claimed) {
+            } else if (outcome === 'DOWN' && down) {
               estimatedPayout = (down.amount * 1e6 / (totalDown || 1)) * totalPool / 1e6 * feeMul
             }
           }

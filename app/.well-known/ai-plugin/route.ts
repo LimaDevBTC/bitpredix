@@ -17,10 +17,10 @@ export async function GET() {
     },
     api: {
       type: 'openapi',
-      url: 'https://bitpredix.vercel.app/openapi.json',
+      url: 'https://www.predix.live/openapi.json',
     },
-    logo_url: 'https://bitpredix.vercel.app/icon-512.png',
+    logo_url: 'https://www.predix.live/icon-512.png',
     contact_email: 'agents@predix.app',
-    legal_info_url: 'https://bitpredix.vercel.app/terms',
+    legal_info_url: 'https://www.predix.live/terms',
   })
 }

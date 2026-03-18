@@ -4,12 +4,14 @@
  * Global stats: total agents, active agents, agent volume share.
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { listAgentKeys } from '@/lib/agent-keys'
+import { withAgentAuth } from '@/lib/agent-auth'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export const GET = (req: NextRequest) =>
+  withAgentAuth(req, async () => {
   try {
     const agents = await listAgentKeys(1, 200)
 
@@ -44,4 +46,4 @@ export async function GET() {
     console.error('[agent/stats] Error:', err)
     return NextResponse.json({ ok: false, error: 'Failed to fetch stats' }, { status: 500 })
   }
-}
+  }, { requireAuth: false })
