@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   deserializeTransaction,
   sponsorTransaction,
+  broadcastTransaction,
   PayloadType,
 } from '@stacks/transactions'
 import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
 import { NETWORK_NAME, BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT } from '@/lib/config'
-import { HIRO_API, hiroHeaders } from '@/lib/hiro'
 import {
   getSponsorNonce,
   setSponsorNonce,
@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Deserialize transaction
+    console.log(`[sponsor] Received txHex (${txHex.length} chars): ${txHex.slice(0, 80)}...`)
     const transaction = deserializeTransaction(txHex)
 
     // 2. Validate contract-call to allowed contracts
@@ -231,44 +232,16 @@ export async function POST(req: NextRequest) {
 
       let result: Record<string, unknown>
       try {
-        const txHex = sponsoredTx.serialize()
-        // Convert hex string to Uint8Array (works in Edge/Node/Vercel runtimes)
-        const bytes = new Uint8Array(txHex.length / 2)
-        for (let i = 0; i < bytes.length; i++) {
-          bytes[i] = parseInt(txHex.substring(i * 2, i * 2 + 2), 16)
-        }
-        const broadcastRes = await fetch(`${HIRO_API}/v2/transactions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: bytes,
-        })
-        const responseText = await broadcastRes.text()
-        console.log(`[sponsor] Broadcast response (${broadcastRes.status}): ${responseText.slice(0, 300)}`)
-        try {
-          result = JSON.parse(responseText)
-        } catch {
-          // Node returned plain text — could be a txid or an error message
-          const trimmed = responseText.replace(/^"|"$/g, '').trim()
-          if (broadcastRes.ok && (trimmed.startsWith('0x') || /^[0-9a-f]{64}$/i.test(trimmed))) {
-            result = { txid: trimmed }
-          } else {
-            // Real error from node in plain text
-            console.warn(`[sponsor] Non-JSON error (${broadcastRes.status}): ${responseText.slice(0, 300)}`)
-            if (attempt < MAX_RETRIES) {
-              await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
-              continue
-            }
-            throw new Error(trimmed || `Broadcast failed (HTTP ${broadcastRes.status})`)
-          }
-        }
+        result = await broadcastTransaction({ transaction: sponsoredTx, network: NETWORK_NAME }) as Record<string, unknown>
+        console.log(`[sponsor] Broadcast result:`, JSON.stringify(result).slice(0, 300))
       } catch (broadcastErr) {
         const msg = broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr)
         console.warn(`[sponsor] Broadcast exception attempt ${attempt}: ${msg}`)
-        if (attempt < MAX_RETRIES && (msg.includes('fetch') || msg.includes('ECONNREFUSED'))) {
+        if (attempt < MAX_RETRIES) {
           await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
           continue
         }
-        throw broadcastErr
+        throw new Error(`Failed to broadcast: ${msg}`)
       }
 
       // Check for broadcast errors
