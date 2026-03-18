@@ -10,27 +10,30 @@ export default function Home() {
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 sm:p-5 text-sm text-zinc-400">
           <h3 className="font-semibold text-zinc-300 mb-3">How it works</h3>
           <ul className="space-y-1.5">
-            <li>• Each round lasts <strong className="text-zinc-300">1 minute</strong>. Predictions close <strong className="text-zinc-300">5 seconds</strong> before the round ends.</li>
+            <li>• Each round lasts <strong className="text-zinc-300">1 minute</strong>. Predictions close <strong className="text-zinc-300">10 seconds</strong> before the round ends.</li>
             <li>• Choose <strong className="text-up">UP</strong> if you think BTC will rise, or <strong className="text-down">DOWN</strong> if you think it will fall.</li>
             <li>• All predictions go into a shared pool. When the round ends, the <strong className="text-zinc-300">losing side pays the winning side</strong>.</li>
             <li>• Your payout depends on your share of the winning pool: the fewer people on your side, the bigger your reward.</li>
+            <li>• A round is only valid with <strong className="text-zinc-300">2+ different wallets</strong> on opposite sides. Otherwise, everyone gets a full refund with zero fees.</li>
           </ul>
 
           <h4 className="font-semibold text-yellow-400 mt-4 mb-2 flex items-center gap-1.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/moneybag.png" alt="" className="w-4 h-4" />
             Jackpot
           </h4>
           <ul className="space-y-1.5">
-            <li>• <strong className="text-zinc-300">1% of each round&apos;s volume</strong> goes into the Jackpot pool.</li>
-            <li>• Predict within the <strong className="text-yellow-400">first 20 seconds</strong> of a round to qualify.</li>
-            <li>• At round end, the Jackpot is distributed <strong className="text-zinc-300">proportionally</strong> among all early predictors on the winning side.</li>
-            <li>• The earlier and bigger you predict, the larger your share of the Jackpot.</li>
+            <li>• <strong className="text-zinc-300">1% of each valid round&apos;s volume</strong> is deposited into the on-chain Jackpot treasury.</li>
+            <li>• Predict within the <strong className="text-yellow-400">first 20 seconds</strong> of a round to earn tickets. <strong className="text-zinc-300">$1 = 1 ticket</strong>.</li>
+            <li>• Be the <strong className="text-zinc-300">first</strong> or <strong className="text-zinc-300">largest</strong> predictor on a side for a <strong className="text-yellow-400">2x multiplier</strong>. Both? <strong className="text-yellow-400">4x</strong>.</li>
+            <li>• A winner is drawn <strong className="text-zinc-300">daily at 9 PM ET</strong> using a Bitcoin block hash. Prize: <strong className="text-yellow-400">10% of the treasury</strong>.</li>
+            <li>• The jackpot never zeros out — it only grows.</li>
           </ul>
 
           <h4 className="font-semibold text-zinc-300 mt-4 mb-2">Zero gas fees, fully automated</h4>
           <ul className="space-y-1.5">
-            <li>• <strong className="text-zinc-300">All transactions are sponsored</strong> — you never pay gas fees. We cover every on-chain transaction.</li>
-            <li>• <strong className="text-zinc-300">Auto-resolve &amp; auto-claim</strong> — rounds are settled automatically and winnings are claimed for you. No manual steps needed.</li>
+            <li>• <strong className="text-zinc-300">All transactions are sponsored</strong> — you never pay gas fees.</li>
+            <li>• <strong className="text-zinc-300">Rounds settle automatically</strong> — winnings are sent to your wallet. No claim button needed.</li>
             <li>• Everything runs on-chain on <strong className="text-zinc-300">Stacks</strong>, secured by Bitcoin.</li>
           </ul>
         </section>
