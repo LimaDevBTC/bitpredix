@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { connect, disconnect, getLocalStorage, isConnected, request } from '@stacks/connect'
 import { bytesToHex, utf8ToBytes } from '@stacks/common'
 
+const NETWORK_NAME = (process.env.NEXT_PUBLIC_STACKS_NETWORK || 'testnet') as 'testnet' | 'mainnet'
+
 const STORAGE_KEY = '@stacks/connect'
 
 function truncateAddress(addr: string, head = 6, tail = 4): string {
@@ -33,7 +35,7 @@ async function doConnect(): Promise<void> {
   const res = await request(
     { forceWalletSelect: true, enableLocalStorage: false },
     'stx_getAccounts',
-    { network: 'testnet' }
+    { network: NETWORK_NAME }
   )
   const stx = res.accounts?.find(
     (a) => typeof a?.address === 'string' && (a.address.startsWith('SP') || a.address.startsWith('ST'))

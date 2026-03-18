@@ -1,7 +1,7 @@
 import { getOrCreateCurrentRound } from '@/lib/rounds'
 import { fetchBtcPriceUsd } from '@/lib/btc-price'
 import { getPriceUp, getPriceDown } from '@/lib/amm'
-import { getRoundState, getRecentTrades, heartbeatAndCount, getProjectedJackpot, setProjectedJackpot, getRoundBettorValidity } from '@/lib/pool-store'
+import { getRoundState, getRecentTrades, heartbeatAndCount, getRoundBettorValidity } from '@/lib/pool-store'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -9,7 +9,9 @@ export const fetchCache = 'force-no-store'
 
 const ROUND_DURATION_MS = 60 * 1000
 import { HIRO_API as HIRO_TESTNET, hiroHeaders, disableApiKey } from '@/lib/hiro'
-const BITPREDIX_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
+import { BITPREDIX_CONTRACT } from '@/lib/config'
+import { getJackpotBalance } from '@/lib/jackpot'
+const BITPREDIX_ID = BITPREDIX_CONTRACT
 
 
 // ---------------------------------------------------------------------------
@@ -114,75 +116,13 @@ async function getOnChainData(roundId: number): Promise<{ up: number; down: numb
   }
 }
 
-// Cache para jackpot balance (muda a cada claim, cache 5s)
-let jackpotCache: { balance: number; earlyUp: number; earlyDown: number; roundId: number; ts: number } | null = null
-
-async function getJackpotData(roundId: number): Promise<{ balance: number; earlyUp: number; earlyDown: number }> {
-  if (jackpotCache && jackpotCache.roundId === roundId && Date.now() - jackpotCache.ts < HIRO_CACHE_TTL_MS) {
-    return jackpotCache
-  }
-
+// Jackpot is 100% off-chain in predixv3 — read from Redis
+async function getJackpotData(_roundId: number): Promise<{ balance: number; earlyUp: number; earlyDown: number }> {
   try {
-    const [contractAddress, contractName] = parseContractId(BITPREDIX_ID!)
-    const { deserializeCV, uintCV, cvToHex } = await import('@stacks/transactions')
-
-    // 1. Fetch jackpot balance
-    let balRes = await fetch(
-      `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-jackpot-balance`,
-      {
-        method: 'POST',
-        headers: { ...hiroHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sender: contractAddress, arguments: [] }),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(4000),
-      }
-    )
-    if (balRes.status === 429) {
-      disableApiKey()
-      balRes = await fetch(
-        `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-jackpot-balance`,
-        { method: 'POST', headers: { ...hiroHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: contractAddress, arguments: [] }), cache: 'no-store', signal: AbortSignal.timeout(4000) }
-      )
-    }
-    const balJson = await balRes.json() as { okay: boolean; result?: string }
-    let balance = 0
-    if (balJson.okay && balJson.result) {
-      const cv = deserializeCV(balJson.result) as unknown as { value?: bigint }
-      balance = Number(cv?.value ?? 0)
-    }
-
-    // 2. Fetch round-jackpot
-    let rjRes = await fetch(
-      `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-round-jackpot`,
-      {
-        method: 'POST',
-        headers: { ...hiroHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sender: contractAddress, arguments: [cvToHex(uintCV(roundId))] }),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(4000),
-      }
-    )
-    if (rjRes.status === 429) {
-      disableApiKey()
-      rjRes = await fetch(
-        `${HIRO_TESTNET}/v2/contracts/call-read/${contractAddress}/${contractName}/get-round-jackpot`,
-        { method: 'POST', headers: { ...hiroHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: contractAddress, arguments: [cvToHex(uintCV(roundId))] }), cache: 'no-store', signal: AbortSignal.timeout(4000) }
-      )
-    }
-    const rjJson = await rjRes.json() as { okay: boolean; result?: string }
-    let earlyUp = 0, earlyDown = 0
-    if (rjJson.okay && rjJson.result) {
-      const cv = deserializeCV(rjJson.result) as unknown as { data?: Record<string, { value?: bigint }> }
-      earlyUp = Number(cv?.data?.['early-up']?.value ?? 0)
-      earlyDown = Number(cv?.data?.['early-down']?.value ?? 0)
-    }
-
-    const result = { balance, earlyUp, earlyDown, roundId, ts: Date.now() }
-    jackpotCache = result
-    return result
-  } catch (err) {
-    console.warn('[round] Jackpot data fetch failed:', (err as Error).message)
-    if (jackpotCache) return jackpotCache
+    const balance = await getJackpotBalance()
+    // Early bets tracked in KV by sponsor (roundState.earlyUp/Down still available)
+    return { balance, earlyUp: 0, earlyDown: 0 }
+  } catch {
     return { balance: 0, earlyUp: 0, earlyDown: 0 }
   }
 }
@@ -196,41 +136,27 @@ export async function GET(request: NextRequest) {
       const roundId = Math.floor(Date.now() / 1000 / 60)
 
       // Fetch KV (single HGETALL for pool+open+early) and on-chain (slow, cached) in parallel
-      const [roundState, recentTrades, onChain, activeUsers, jackpotOnChain, projectedJackpot, bettorValidity] = await Promise.all([
+      const [roundState, recentTrades, onChain, activeUsers, jackpotData, bettorValidity] = await Promise.all([
         getRoundState(roundId),
         getRecentTrades(roundId),
         getOnChainData(roundId),
         sid ? heartbeatAndCount(sid) : Promise.resolve(0),
         getJackpotData(roundId),
-        getProjectedJackpot(),
         getRoundBettorValidity(roundId),
       ])
 
       const totalUp = Math.max(onChain.up, roundState.up)
       const totalDown = Math.max(onChain.down, roundState.down)
 
-      // Early jackpot projection: when round is ending (<10s left) and is valid,
-      // preemptively project the next jackpot balance so the UI updates instantly
-      // instead of waiting for the cron resolver (which can take 10-30s).
-      const nowMs = Date.now()
-      const roundEndMs = (roundId + 1) * 60 * 1000
-      const secsLeft = (roundEndMs - nowMs) / 1000
-      if (secsLeft <= 10 && secsLeft > 0 && totalUp > 0 && totalDown > 0 && bettorValidity.hasCounterparty) {
-        const jackpotFee = Math.floor((totalUp + totalDown) / 100) // 1% of total pool
-        const currentBalance = Math.max(jackpotOnChain.balance, projectedJackpot)
-        const anticipated = currentBalance + jackpotFee
-        if (anticipated > projectedJackpot) {
-          // Fire-and-forget — don't block the response
-          setProjectedJackpot(anticipated).catch(() => {})
-        }
-      }
+      // Jackpot balance is off-chain (Redis) — no projection needed
+      // The cron resolver credits jackpot after settlement
 
       const startAt = roundId * 60 * 1000
       const round = {
         id: `round-${roundId}`,
         startAt,
         endsAt: (roundId + 1) * 60 * 1000,
-        tradingClosesAt: startAt + 55 * 1000,
+        tradingClosesAt: startAt + 50 * 1000,
         priceAtStart: onChain.priceStart / 100,
         priceAtEnd: onChain.priceEnd > 0 ? onChain.priceEnd / 100 : undefined,
         outcome: onChain.resolved ? (onChain.priceEnd > onChain.priceStart ? 'UP' : 'DOWN') : undefined,
@@ -254,9 +180,9 @@ export async function GET(request: NextRequest) {
         activeUsers,
         kvConnected: roundState._kvConnected ?? true,
         jackpot: {
-          balance: Math.max(jackpotOnChain.balance, projectedJackpot) / 1e6,
-          earlyUp: Math.max(jackpotOnChain.earlyUp, roundState.earlyUp) / 1e6,
-          earlyDown: Math.max(jackpotOnChain.earlyDown, roundState.earlyDown) / 1e6,
+          balance: jackpotData.balance / 1e6,
+          earlyUp: roundState.earlyUp / 1e6,
+          earlyDown: roundState.earlyDown / 1e6,
         },
         hasCounterparty: bettorValidity.hasCounterparty,
         uniqueWallets: bettorValidity.uniqueWallets,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getLocalStorage, isConnected, request } from '@stacks/connect'
-import { uintCV, contractPrincipalCV, stringAsciiCV, boolCV } from '@stacks/transactions'
+import { uintCV, contractPrincipalCV, stringAsciiCV } from '@stacks/transactions'
 import { TradeTape, type TradeTapeItem } from './TradeTape'
 import { BtcPrice } from './BtcPrice'
 import { Countdown } from './Countdown'
@@ -17,9 +17,9 @@ import { usePythPrice } from '@/lib/pyth'
 import { sponsoredContractCall, getSavedPublicKey, savePublicKey } from '@/lib/sponsored-tx'
 import confetti from 'canvas-confetti'
 
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv2'
-const GATEWAY_CONTRACT = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv2-gateway'
-const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
+const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID!
+const GATEWAY_CONTRACT = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID!
+const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID!
 const MAX_APPROVE_AMOUNT = BigInt('1000000000000') // 1 million USD (6 decimals)
 
 type Side = 'UP' | 'DOWN'
@@ -746,7 +746,7 @@ export function MarketCardV4() {
 
     const amountMicro = Math.round(v * 1e6) // 6 decimais
 
-    // Calculate early flag BEFORE calling sponsoredContractCall
+    // Early flag determined off-chain by sponsor (no on-chain param in predixv3)
     const roundStartMs = (round.id) * 60 * 1000
     const isEarly = Date.now() - roundStartMs < 20_000
 
@@ -760,7 +760,6 @@ export function MarketCardV4() {
           uintCV(round.id),
           stringAsciiCV(side),
           uintCV(amountMicro),
-          boolCV(isEarly),
         ],
         publicKey,
       })
@@ -888,11 +887,12 @@ export function MarketCardV4() {
         {(() => {
           /* ── Jackpot money-bag badge (reused across all states) ── */
           const JackpotBadge = jackpot ? (
-            <div
+            <a
+              href="/jackpot"
               className={`shrink-0 relative ml-auto pl-2 w-10 h-10 flex items-center justify-center cursor-pointer ${earlySecsLeft > 0 ? 'animate-jackpot-glow' : ''}`}
               onMouseEnter={() => setShowJackpotTip(true)}
               onMouseLeave={() => setShowJackpotTip(false)}
-              onClick={() => setShowJackpotTip(p => !p)}
+              title="View Jackpot"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/moneybag.png" alt="" className="w-9 h-9 object-contain select-none pointer-events-none" draggable={false} />
@@ -908,7 +908,7 @@ export function MarketCardV4() {
                   ${jackpot.balance.toFixed(2)}
                 </span>
               )}
-            </div>
+            </a>
           ) : null
 
           /* Jackpot tooltip — rendered outside overflow-hidden container */

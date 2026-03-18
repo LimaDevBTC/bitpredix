@@ -1,52 +1,63 @@
 /**
- * Predix Resolver Daemon
+ * Predix Resolver Daemon (v3)
  *
  * Runs in a continuous loop (~65s interval). For each completed round:
  * 1. Reads round data on-chain
  * 2. Fetches prices from Pyth Benchmarks
- * 3. Calls resolve-round (if not yet resolved)
- * 4. Calls claim-on-behalf for each bettor
+ * 3. Circuit breaker validation (0.5% threshold)
+ * 4. Calls resolve-and-distribute via gateway (single atomic call)
  *
- * Deployer wallet pays gas for all txs.
- *
- * Usage: ORACLE_MNEMONIC="..." node scripts/resolver-daemon.mjs
+ * Usage: SPONSOR_MNEMONIC="..." node scripts/resolver-daemon.mjs
  */
 
-import { execSync } from 'child_process'
 import txPkg from '@stacks/transactions'
 const {
   makeContractCall,
-  AnchorMode,
+  PostConditionMode,
   uintCV,
-  stringAsciiCV,
-  standardPrincipalCV,
   cvToHex,
   tupleCV,
   hexToCV,
   cvToJSON,
 } = txPkg
 import netPkg from '@stacks/network'
-const { STACKS_TESTNET } = netPkg
+const { STACKS_TESTNET, STACKS_MAINNET } = netPkg
 import walletPkg from '@stacks/wallet-sdk'
 const { generateWallet, getStxAddress } = walletPkg
 
 // ---------------------------------------------------------------------------
-// CONFIG
+// CONFIG (all from env, no hardcoded addresses)
 // ---------------------------------------------------------------------------
 
-const MNEMONIC = process.env.ORACLE_MNEMONIC
+const MNEMONIC = process.env.SPONSOR_MNEMONIC || process.env.ORACLE_MNEMONIC
 if (!MNEMONIC) {
-  console.error('ORACLE_MNEMONIC not set')
-  console.error('Usage: ORACLE_MNEMONIC="..." node scripts/resolver-daemon.mjs')
+  console.error('SPONSOR_MNEMONIC not set')
+  console.error('Usage: SPONSOR_MNEMONIC="..." node scripts/resolver-daemon.mjs')
   process.exit(1)
 }
 
-const CONTRACT_ADDRESS = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
-const CONTRACT_NAME = 'predixv1'
-const HIRO_API = 'https://api.testnet.hiro.so'
+const NETWORK_NAME = process.env.NEXT_PUBLIC_STACKS_NETWORK || 'testnet'
+
+const GATEWAY_CONTRACT_ID = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID
+const BITPREDIX_CONTRACT_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
+if (!GATEWAY_CONTRACT_ID || !BITPREDIX_CONTRACT_ID) {
+  console.error('NEXT_PUBLIC_GATEWAY_CONTRACT_ID and NEXT_PUBLIC_BITPREDIX_CONTRACT_ID are required')
+  process.exit(1)
+}
+
+const [GATEWAY_ADDRESS, GATEWAY_NAME] = GATEWAY_CONTRACT_ID.split('.')
+const [CONTRACT_ADDRESS, CONTRACT_NAME] = BITPREDIX_CONTRACT_ID.split('.')
+const STACKS_NETWORK = NETWORK_NAME === 'mainnet' ? STACKS_MAINNET : STACKS_TESTNET
+const HIRO_API = NETWORK_NAME === 'mainnet'
+  ? 'https://api.mainnet.hiro.so'
+  : 'https://api.testnet.hiro.so'
 const PYTH_BENCHMARKS = 'https://benchmarks.pyth.network'
-const LOOP_INTERVAL_MS = 65_000 // 65 seconds (5s after round ends)
-const TX_FEE = 50000n // 0.05 STX per tx
+const LOOP_INTERVAL_MS = 65_000
+const TX_FEE = BigInt(process.env.SPONSOR_TX_FEE || '50000')
+
+// Circuit breaker
+const PRICE_CHANGE_THRESHOLD = parseFloat(process.env.PRICE_CHANGE_THRESHOLD || '0.005')
+let circuitBreakerFailures = 0
 
 // ---------------------------------------------------------------------------
 // WALLET INIT
@@ -55,10 +66,12 @@ const TX_FEE = 50000n // 0.05 STX per tx
 const wallet = await generateWallet({ secretKey: MNEMONIC, password: '' })
 const account = wallet.accounts[0]
 const privateKey = account.stxPrivateKey
-const address = getStxAddress({ account, network: 'testnet' })
+const address = getStxAddress({ account, network: NETWORK_NAME })
 
-console.log(`[resolver] Wallet address: ${address}`)
-console.log(`[resolver] Contract: ${CONTRACT_ADDRESS}.${CONTRACT_NAME}`)
+console.log(`[resolver] Sponsor: ${address}`)
+console.log(`[resolver] Gateway: ${GATEWAY_ADDRESS}.${GATEWAY_NAME}`)
+console.log(`[resolver] Market: ${CONTRACT_ADDRESS}.${CONTRACT_NAME}`)
+console.log(`[resolver] Network: ${NETWORK_NAME}`)
 console.log(`[resolver] Loop interval: ${LOOP_INTERVAL_MS}ms\n`)
 
 // ---------------------------------------------------------------------------
@@ -73,9 +86,7 @@ let lastProcessedRoundId = null
 
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, options)
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} from ${url}`)
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`)
   return res.json()
 }
 
@@ -101,11 +112,7 @@ async function broadcastTx(tx) {
   const text = await res.text()
 
   let data
-  try {
-    data = JSON.parse(text)
-  } catch {
-    data = { txid: text.trim().replace(/"/g, '') }
-  }
+  try { data = JSON.parse(text) } catch { data = { txid: text.trim().replace(/"/g, '') } }
 
   if (data.error) {
     throw new Error(`Broadcast failed: ${data.error} — ${data.reason || ''}`)
@@ -148,7 +155,6 @@ async function readRound(roundId) {
     if (!data.data) return null
     const cv = hexToCV(data.data)
     const json = cvToJSON(cv)
-    // (some { ... }) or (none)
     if (json.value === null || json.value === undefined) return null
     const v = json.value
     return {
@@ -164,71 +170,6 @@ async function readRound(roundId) {
   }
 }
 
-async function readRoundBettors(roundId) {
-  try {
-    const data = await fetchJson(
-      `${HIRO_API}/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/get-round-bettors`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: CONTRACT_ADDRESS,
-          arguments: [cvToHex(uintCV(roundId))],
-        }),
-      }
-    )
-    if (!data.result) return []
-    const cv = hexToCV(data.result)
-    const json = cvToJSON(cv)
-    const bettorsList = json.value?.bettors?.value
-    if (!Array.isArray(bettorsList)) return []
-    return bettorsList.map(b => b.value)
-  } catch (e) {
-    console.error(`[resolver] Error reading bettors for round ${roundId}:`, e.message)
-    return []
-  }
-}
-
-async function readUserBets(roundId, bettor) {
-  try {
-    const data = await fetchJson(
-      `${HIRO_API}/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/get-user-bets`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: CONTRACT_ADDRESS,
-          arguments: [
-            cvToHex(uintCV(roundId)),
-            cvToHex(standardPrincipalCV(bettor)),
-          ],
-        }),
-      }
-    )
-    if (!data.result) return { up: null, down: null }
-    const cv = hexToCV(data.result)
-    const json = cvToJSON(cv)
-    const v = json.value
-
-    const parseSide = (side) => {
-      if (!side || side.value === null || side.value === undefined) return null
-      const sv = side.value
-      return {
-        amount: Number(sv.amount?.value ?? 0),
-        claimed: sv.claimed?.value === true || String(sv.claimed?.value) === 'true',
-      }
-    }
-
-    return {
-      up: parseSide(v?.up),
-      down: parseSide(v?.down),
-    }
-  } catch (e) {
-    console.error(`[resolver] Error reading bets for ${bettor} round ${roundId}:`, e.message)
-    return { up: null, down: null }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // PYTH PRICES
 // ---------------------------------------------------------------------------
@@ -238,10 +179,7 @@ function findClosestCandleIndex(timestamps, target) {
   let minDiff = Math.abs(timestamps[0] - target)
   for (let i = 1; i < timestamps.length; i++) {
     const diff = Math.abs(timestamps[i] - target)
-    if (diff < minDiff) {
-      minDiff = diff
-      closest = i
-    }
+    if (diff < minDiff) { minDiff = diff; closest = i }
   }
   return closest
 }
@@ -254,24 +192,19 @@ async function fetchRoundPrices(roundId) {
   const data = await fetchJson(url)
 
   if (data.s !== 'ok' || !data.t || data.t.length === 0) {
-    throw new Error(`Pyth returned no data for round ${roundId} (status: ${data.s})`)
+    throw new Error(`Pyth returned no data for round ${roundId}`)
   }
 
-  const timestamps = data.t
-  const opens = data.o
-  const closes = data.c
-
-  const startIdx = findClosestCandleIndex(timestamps, roundStartTs)
-  const endIdx = findClosestCandleIndex(timestamps, roundEndTs)
+  const startIdx = findClosestCandleIndex(data.t, roundStartTs)
+  const endIdx = findClosestCandleIndex(data.t, roundEndTs)
 
   let priceStart, priceEnd
-
   if (startIdx === endIdx) {
-    priceStart = opens[startIdx]
-    priceEnd = closes[endIdx]
+    priceStart = data.o[startIdx]
+    priceEnd = data.c[endIdx]
   } else {
-    priceStart = closes[startIdx]
-    priceEnd = closes[endIdx]
+    priceStart = data.c[startIdx]
+    priceEnd = data.c[endIdx]
   }
 
   return {
@@ -281,138 +214,101 @@ async function fetchRoundPrices(roundId) {
 }
 
 // ---------------------------------------------------------------------------
-// TX BUILDERS
+// CIRCUIT BREAKER
 // ---------------------------------------------------------------------------
 
-async function sendResolveRound(roundId, priceStart, priceEnd, nonce) {
-  const tx = await makeContractCall({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: 'resolve-round',
-    functionArgs: [uintCV(roundId), uintCV(priceStart), uintCV(priceEnd)],
-    senderKey: privateKey,
-    network: STACKS_TESTNET,
-    anchorMode: AnchorMode.Any,
-    fee: TX_FEE,
-    nonce: BigInt(nonce),
-  })
-  const txId = await broadcastTx(tx)
-  console.log(`   [resolve-round] txId=${txId}`)
-  await waitForMempool(txId)
-  return txId
-}
-
-async function sendClaimOnBehalf(user, roundId, side, priceStart, priceEnd, nonce) {
-  const tx = await makeContractCall({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: 'claim-on-behalf',
-    functionArgs: [
-      standardPrincipalCV(user),
-      uintCV(roundId),
-      stringAsciiCV(side),
-      uintCV(priceStart),
-      uintCV(priceEnd),
-    ],
-    senderKey: privateKey,
-    network: STACKS_TESTNET,
-    anchorMode: AnchorMode.Any,
-    fee: TX_FEE,
-    nonce: BigInt(nonce),
-  })
-  const txId = await broadcastTx(tx)
-  console.log(`   [claim-on-behalf] user=${user} side=${side} txId=${txId}`)
-  await waitForMempool(txId)
-  return txId
+function validatePrices(priceStart, priceEnd) {
+  const change = Math.abs(priceEnd - priceStart) / priceStart
+  if (change > PRICE_CHANGE_THRESHOLD) {
+    return { valid: false, reason: `Price change ${(change * 100).toFixed(2)}% exceeds ${PRICE_CHANGE_THRESHOLD * 100}% threshold` }
+  }
+  // Sanity range
+  if (priceEnd < 10_000 * 100 || priceEnd > 500_000 * 100) {
+    return { valid: false, reason: `Price ${priceEnd} outside sane range` }
+  }
+  return { valid: true }
 }
 
 // ---------------------------------------------------------------------------
-// MAIN LOOP
+// PROCESS ROUND — resolve-and-distribute via gateway
 // ---------------------------------------------------------------------------
 
 async function processRound(roundId, nonce) {
   let currentNonce = nonce
 
-  // 1. Read round on-chain
   const round = await readRound(roundId)
   if (!round || (round.totalUp + round.totalDown === 0)) {
     console.log(`   Round ${roundId}: empty or not found, skipping`)
     return currentNonce
   }
 
-  console.log(`   Round ${roundId}: UP=$${round.totalUp / 1e6} DOWN=$${round.totalDown / 1e6} resolved=${round.resolved}`)
-
-  let priceStart, priceEnd
-
-  if (!round.resolved) {
-    // 2. Fetch prices from Pyth
-    try {
-      const prices = await fetchRoundPrices(roundId)
-      priceStart = prices.priceStart
-      priceEnd = prices.priceEnd
-    } catch (e) {
-      console.error(`   Round ${roundId}: failed to fetch Pyth prices: ${e.message}`)
-      return currentNonce
-    }
-
-    console.log(`   Prices: start=${priceStart} end=${priceEnd} outcome=${priceEnd > priceStart ? 'UP' : 'DOWN'}`)
-
-    // 3. Resolve round
-    try {
-      await sendResolveRound(roundId, priceStart, priceEnd, currentNonce)
-      currentNonce++
-    } catch (e) {
-      console.error(`   Round ${roundId}: resolve-round failed: ${e.message}`)
-      return currentNonce
-    }
-  } else {
-    // Round already resolved — use on-chain prices
-    priceStart = round.priceStart
-    priceEnd = round.priceEnd
-    console.log(`   Already resolved: start=${priceStart} end=${priceEnd}`)
-  }
-
-  // 4. Read bettors
-  const bettors = await readRoundBettors(roundId)
-  if (bettors.length === 0) {
-    console.log(`   No bettors found for round ${roundId}`)
+  if (round.resolved) {
+    console.log(`   Round ${roundId}: already resolved`)
     return currentNonce
   }
-  console.log(`   Bettors: ${bettors.length} found`)
 
-  // 5. Claim for each bettor
-  for (const bettor of bettors) {
-    const userBets = await readUserBets(roundId, bettor)
+  console.log(`   Round ${roundId}: UP=$${round.totalUp / 1e6} DOWN=$${round.totalDown / 1e6}`)
 
-    for (const side of ['UP', 'DOWN']) {
-      const bet = side === 'UP' ? userBets.up : userBets.down
-      if (!bet || bet.claimed) continue
+  // Fetch prices
+  let priceStart, priceEnd
+  try {
+    const prices = await fetchRoundPrices(roundId)
+    priceStart = prices.priceStart
+    priceEnd = prices.priceEnd
+  } catch (e) {
+    console.error(`   Round ${roundId}: Pyth prices unavailable: ${e.message}`)
+    return currentNonce
+  }
 
-      try {
-        await sendClaimOnBehalf(bettor, roundId, side, priceStart, priceEnd, currentNonce)
-        currentNonce++
-      } catch (e) {
-        console.error(`   claim-on-behalf failed for ${bettor} ${side}: ${e.message}`)
-        // Continue with next bettor/side
-      }
-    }
+  const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
+  console.log(`   Prices: start=${priceStart} end=${priceEnd} outcome=${outcome}`)
+
+  // Circuit breaker
+  const validation = validatePrices(priceStart, priceEnd)
+  if (!validation.valid) {
+    circuitBreakerFailures++
+    console.error(`   [CIRCUIT-BREAKER] Skipping round ${roundId}: ${validation.reason} (consecutive=${circuitBreakerFailures})`)
+    return currentNonce
+  }
+  circuitBreakerFailures = 0
+
+  // Call resolve-and-distribute via gateway
+  try {
+    const tx = await makeContractCall({
+      contractAddress: GATEWAY_ADDRESS,
+      contractName: GATEWAY_NAME,
+      functionName: 'resolve-and-distribute',
+      functionArgs: [uintCV(roundId), uintCV(priceStart), uintCV(priceEnd)],
+      senderKey: privateKey,
+      network: STACKS_NETWORK,
+      postConditionMode: PostConditionMode.Allow,
+      fee: TX_FEE,
+      nonce: BigInt(currentNonce),
+    })
+    const txId = await broadcastTx(tx)
+    console.log(`   [resolve-and-distribute] txId=${txId}`)
+    await waitForMempool(txId)
+    currentNonce++
+  } catch (e) {
+    console.error(`   Round ${roundId}: resolve-and-distribute failed: ${e.message}`)
   }
 
   return currentNonce
 }
+
+// ---------------------------------------------------------------------------
+// MAIN LOOP
+// ---------------------------------------------------------------------------
 
 async function tick() {
   const now = Date.now()
   const currentRoundId = Math.floor(now / 60000)
   const previousRoundId = currentRoundId - 1
 
-  // Determine rounds to process
   let roundsToProcess
   if (lastProcessedRoundId === null) {
-    // First run: only process the immediately previous round
     roundsToProcess = [previousRoundId]
   } else {
-    // Catch-up: process all rounds since last processed
     roundsToProcess = []
     for (let r = lastProcessedRoundId + 1; r <= previousRoundId; r++) {
       roundsToProcess.push(r)
@@ -424,28 +320,25 @@ async function tick() {
     return
   }
 
-  // Skip very old rounds (>2h) — Pyth data may be unavailable
+  // Skip old rounds (>2h)
   const twoHoursAgoRound = Math.floor((now - 2 * 60 * 60 * 1000) / 60000)
   roundsToProcess = roundsToProcess.filter(r => r >= twoHoursAgoRound)
 
   if (roundsToProcess.length === 0) {
-    console.log(`[${new Date().toISOString()}] All pending rounds are too old (>2h), skipping`)
+    console.log(`[${new Date().toISOString()}] All pending rounds too old (>2h), skipping`)
     lastProcessedRoundId = previousRoundId
     return
   }
 
-  console.log(`\n[${new Date().toISOString()}] Processing ${roundsToProcess.length} round(s): ${roundsToProcess[0]}..${roundsToProcess[roundsToProcess.length - 1]}`)
+  console.log(`\n[${new Date().toISOString()}] Processing ${roundsToProcess.length} round(s)`)
 
-  // Check balance
   try {
     const balance = await getStxBalance()
     console.log(`   STX balance: ${balance.toFixed(2)} STX`)
-    if (balance < 50) {
-      console.warn('   WARNING: Low STX balance! Refill from faucet.')
-    }
+    if (balance < 10) console.warn('   WARNING: Low STX balance!')
+    if (balance < 2) { console.error('   CRITICAL: STX balance < 2, skipping'); return }
   } catch { /* ignore */ }
 
-  // Fetch nonce once for the batch
   let nonce
   try {
     nonce = await getNonce()
@@ -470,14 +363,8 @@ async function tick() {
 // ---------------------------------------------------------------------------
 
 console.log('[resolver] Starting daemon...\n')
-
-// Run immediately, then loop
 await tick()
 
 setInterval(async () => {
-  try {
-    await tick()
-  } catch (e) {
-    console.error('[resolver] Tick error:', e.message)
-  }
+  try { await tick() } catch (e) { console.error('[resolver] Tick error:', e.message) }
 }, LOOP_INTERVAL_MS)

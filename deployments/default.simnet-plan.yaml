@@ -22,7 +22,6 @@ genesis:
     - pox-4
     - signers
     - signers-voting
-    - costs-4
 plan:
   batches:
     - id: 0
@@ -40,6 +39,16 @@ plan:
       epoch: "2.5"
     - id: 1
       transactions:
+        - emulated-contract-publish:
+            contract-name: predixv5
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/predixv5.clar
+            clarity-version: 3
+        - emulated-contract-publish:
+            contract-name: gatewayv4
+            emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ
+            path: contracts/gatewayv4.clar
+            clarity-version: 3
         - emulated-contract-publish:
             contract-name: predixv2
             emulated-sender: STC5KHM41H6WHAST7MWWDD807YSPRQKJ68T330BQ

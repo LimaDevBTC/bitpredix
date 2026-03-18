@@ -308,8 +308,8 @@ function BetRow({ bet, expanded, onToggle }: {
             </span>
           )}
           <span>Pool: <span className="text-zinc-300">${formatUsd(bet.totalPool)}</span></span>
-          {bet.jackpotBonus > 0 && (
-            <span className="text-bitcoin">Jackpot: +${formatUsd(bet.jackpotBonus)}</span>
+          {bet.early && (
+            <span className="text-bitcoin">Ticket eligible</span>
           )}
           <a
             href={`https://explorer.hiro.so/txid/${bet.txId}?chain=testnet`}
@@ -583,35 +583,16 @@ export default function ProfilePage({ address }: { address: string }) {
               </div>
             )}
 
-            {/* Jackpot Earnings */}
-            {stats.totalJackpotEarned > 0 && (
-              <div className="rounded-xl border border-bitcoin/20 bg-bitcoin/[0.03] p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <img src="/moneybag.png" alt="" className="w-4 h-4" />
-                  <span className="text-sm font-medium text-bitcoin">Jackpot Earnings</span>
-                </div>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div>
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Total Earned</div>
-                    <div className="text-xl font-mono font-bold text-bitcoin mt-0.5">
-                      +${formatUsd(stats.totalJackpotEarned)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Jackpot Wins</div>
-                    <div className="text-xl font-mono font-bold text-zinc-200 mt-0.5">
-                      {stats.jackpotWins}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Avg Bonus</div>
-                    <div className="text-xl font-mono font-bold text-zinc-200 mt-0.5">
-                      ${formatUsd(stats.totalJackpotEarned / stats.jackpotWins)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Jackpot link */}
+            <a
+              href="/jackpot"
+              className="flex items-center gap-3 rounded-xl border border-bitcoin/20 bg-bitcoin/[0.03] p-4 hover:bg-bitcoin/[0.06] transition-colors"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/moneybag.png" alt="" className="w-5 h-5" />
+              <span className="text-sm font-medium text-bitcoin">View Jackpot</span>
+              <span className="text-zinc-600 text-xs ml-auto">Tickets, draws & treasury &rarr;</span>
+            </a>
 
             {/* Equity Curve */}
             <div className="bg-zinc-900/50 rounded-xl border border-zinc-800 p-4 sm:p-5">

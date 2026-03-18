@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
+import { TOKEN_CONTRACT as CONTRACT_ID } from '@/lib/config'
 import { HIRO_API as HIRO_TESTNET, hiroHeaders } from '@/lib/hiro'
 
 // Cache server-side para evitar 429 da Hiro API

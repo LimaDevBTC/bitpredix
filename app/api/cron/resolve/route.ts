@@ -3,26 +3,26 @@ import {
   makeContractCall,
   PostConditionMode,
   uintCV,
-  stringAsciiCV,
-  standardPrincipalCV,
   cvToHex,
   tupleCV,
   hexToCV,
   cvToJSON,
 } from '@stacks/transactions'
-import { STACKS_TESTNET } from '@stacks/network'
+import { STACKS_TESTNET, STACKS_MAINNET } from '@stacks/network'
 import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
+import { NETWORK_NAME, GATEWAY_CONTRACT, BITPREDIX_CONTRACT, splitContractId } from '@/lib/config'
+import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
+import { alert } from '@/lib/alerting'
+import { creditTicketsAfterSettlement } from '@/lib/jackpot'
 import {
   getSponsorNonce,
   setSponsorNonce,
   clearSponsorNonce,
   acquireSponsorLock,
   releaseSponsorLock,
-  setProjectedJackpot,
   getRoundsWithBets,
   removeResolvedRound,
   getActiveUserCount,
-  getRoundBettorValidity,
 } from '@/lib/pool-store'
 
 export const dynamic = 'force-dynamic'
@@ -32,11 +32,20 @@ export const maxDuration = 300
 // CONFIG
 // ---------------------------------------------------------------------------
 
-const CONTRACT_ADDRESS = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
-const CONTRACT_NAME = 'predixv2'
-import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
+const [GATEWAY_ADDRESS, GATEWAY_NAME] = splitContractId(GATEWAY_CONTRACT)
+const [CONTRACT_ADDRESS, CONTRACT_NAME] = splitContractId(BITPREDIX_CONTRACT)
+const STACKS_NETWORK = NETWORK_NAME === 'mainnet' ? STACKS_MAINNET : STACKS_TESTNET
 const PYTH_BENCHMARKS = 'https://benchmarks.pyth.network'
-const TX_FEE = BigInt(50000) // 0.05 STX
+const TX_FEE = BigInt(process.env.SPONSOR_TX_FEE || '50000')
+
+// Circuit breaker thresholds
+const PRICE_CHANGE_THRESHOLD = parseFloat(process.env.PRICE_CHANGE_THRESHOLD || '0.005')
+const PRICE_DIVERGENCE_THRESHOLD = 0.003 // 0.3% Hermes vs Benchmarks
+const PRICE_SANE_MIN = 10_000 * 100 // $10k in cents
+const PRICE_SANE_MAX = 500_000 * 100 // $500k in cents
+
+// Consecutive circuit breaker failures tracking
+let circuitBreakerFailures = 0
 
 interface RoundData {
   totalUp: number
@@ -44,11 +53,6 @@ interface RoundData {
   priceStart: number
   priceEnd: number
   resolved: boolean
-}
-
-interface BetData {
-  amount: number
-  claimed: boolean
 }
 
 interface LogEntry {
@@ -69,11 +73,10 @@ async function fetchJson(url: string, options: RequestInit = {}, retries = 2): P
       headers: { ...hiroHeaders(), ...(options.headers as Record<string, string>) },
     })
     if (res.status === 429) {
-      // Detect monthly quota exhaustion → disable API key and retry without it
       const remaining = res.headers.get('x-ratelimit-remaining-stacks-month')
       if (remaining === '0' || remaining === '-1') {
         disableApiKey()
-        continue // retry immediately without key
+        continue
       }
       if (attempt < retries) {
         await sleep(500 * (attempt + 1))
@@ -95,13 +98,13 @@ function sleep(ms: number) {
 // ---------------------------------------------------------------------------
 
 async function initWallet() {
-  const mnemonic = process.env.ORACLE_MNEMONIC
-  if (!mnemonic) throw new Error('ORACLE_MNEMONIC not configured')
+  const mnemonic = process.env.SPONSOR_MNEMONIC || process.env.ORACLE_MNEMONIC
+  if (!mnemonic) throw new Error('SPONSOR_MNEMONIC not configured')
 
   const wallet = await generateWallet({ secretKey: mnemonic, password: '' })
   const account = wallet.accounts[0]
   const privateKey = account.stxPrivateKey
-  const address = getStxAddress({ account, network: 'testnet' })
+  const address = getStxAddress({ account, network: NETWORK_NAME })
 
   return { privateKey, address }
 }
@@ -115,10 +118,6 @@ async function getNonce(address: string): Promise<number> {
 // BROADCAST
 // ---------------------------------------------------------------------------
 
-/**
- * Broadcast with automatic nonce retry — handles ghost txs in node mempool.
- * Returns { txId, nonce } where nonce is the next available nonce after broadcast.
- */
 async function broadcastWithRetry(
   buildTx: (nonce: bigint) => Promise<{ serialize: () => string; txid: () => string }>,
   startNonce: number,
@@ -199,7 +198,6 @@ async function readRound(roundId: number): Promise<RoundData | null> {
     if (!data.data) return null
     const cv = hexToCV(data.data as string)
     const json = cvToJSON(cv)
-    // cvToJSON wraps map entries as optional(tuple(...)) — need .value.value to unwrap both
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const v = (json as any).value?.value
     if (v === null || v === undefined) return null
@@ -212,95 +210,6 @@ async function readRound(roundId: number): Promise<RoundData | null> {
     }
   } catch {
     return null
-  }
-}
-
-async function readRoundBettors(roundId: number): Promise<string[]> {
-  try {
-    const data = await fetchJson(
-      `${HIRO_API}/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/get-round-bettors`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: CONTRACT_ADDRESS,
-          arguments: [cvToHex(uintCV(roundId))],
-        }),
-      }
-    )
-    if (!data.result) return []
-    const cv = hexToCV(data.result as string)
-    const json = cvToJSON(cv)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bettorsList = (json as any).value?.bettors?.value
-    if (!Array.isArray(bettorsList)) return []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return bettorsList.map((b: any) => b.value)
-  } catch {
-    return []
-  }
-}
-
-async function readUserBets(roundId: number, bettor: string): Promise<{ up: BetData | null; down: BetData | null }> {
-  try {
-    const data = await fetchJson(
-      `${HIRO_API}/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/get-user-bets`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: CONTRACT_ADDRESS,
-          arguments: [
-            cvToHex(uintCV(roundId)),
-            cvToHex(standardPrincipalCV(bettor)),
-          ],
-        }),
-      }
-    )
-    if (!data.result) return { up: null, down: null }
-    const cv = hexToCV(data.result as string)
-    const json = cvToJSON(cv)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const v = (json as any).value
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parseSide = (side: any): BetData | null => {
-      if (!side || side.value === null || side.value === undefined) return null
-      // Optional(tuple) needs .value.value to unwrap both layers
-      const sv = side.value?.value ?? side.value
-      if (!sv) return null
-      return {
-        amount: Number(sv.amount?.value ?? 0),
-        claimed: sv.claimed?.value === true || String(sv.claimed?.value) === 'true',
-      }
-    }
-
-    return {
-      up: parseSide(v?.up),
-      down: parseSide(v?.down),
-    }
-  } catch {
-    return { up: null, down: null }
-  }
-}
-
-async function readJackpotBalance(): Promise<number> {
-  try {
-    const data = await fetchJson(
-      `${HIRO_API}/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/get-jackpot-balance`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sender: CONTRACT_ADDRESS, arguments: [] }),
-      }
-    )
-    if (!data.result) return 0
-    const cv = hexToCV(data.result as string)
-    const json = cvToJSON(cv)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return Number((json as any).value ?? 0)
-  } catch {
-    return 0
   }
 }
 
@@ -350,8 +259,48 @@ async function fetchRoundPrices(roundId: number): Promise<{ priceStart: number; 
   }
 }
 
+async function fetchCurrentHermesPrice(): Promise<number> {
+  try {
+    const res = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43')
+    const data = await res.json() as { parsed?: Array<{ price?: { price?: string; expo?: number } }> }
+    const p = data.parsed?.[0]?.price
+    if (p?.price && p?.expo !== undefined) {
+      return parseFloat(p.price) * Math.pow(10, p.expo) * 100 // to cents
+    }
+  } catch { /* fallback */ }
+  return 0
+}
+
 // ---------------------------------------------------------------------------
-// PROCESS ROUND
+// CIRCUIT BREAKER
+// ---------------------------------------------------------------------------
+
+async function validatePrices(priceStart: number, priceEnd: number): Promise<{ valid: boolean; reason?: string }> {
+  // 1. Excessive change in 60s
+  const change = Math.abs(priceEnd - priceStart) / priceStart
+  if (change > PRICE_CHANGE_THRESHOLD) {
+    return { valid: false, reason: `Price change ${(change * 100).toFixed(2)}% exceeds ${PRICE_CHANGE_THRESHOLD * 100}% threshold` }
+  }
+
+  // 2. Cross-check: Benchmarks vs Hermes
+  const hermesPrice = await fetchCurrentHermesPrice()
+  if (hermesPrice > 0) {
+    const divergence = Math.abs(hermesPrice - priceEnd) / hermesPrice
+    if (divergence > PRICE_DIVERGENCE_THRESHOLD) {
+      return { valid: false, reason: `Hermes/Benchmark divergence ${(divergence * 100).toFixed(2)}% exceeds ${PRICE_DIVERGENCE_THRESHOLD * 100}% threshold` }
+    }
+  }
+
+  // 3. Sanity: price in reasonable BTC range
+  if (priceEnd < PRICE_SANE_MIN || priceEnd > PRICE_SANE_MAX) {
+    return { valid: false, reason: `Price ${priceEnd} outside sane range ($10k-$500k)` }
+  }
+
+  return { valid: true }
+}
+
+// ---------------------------------------------------------------------------
+// PROCESS ROUND — resolve-and-distribute via gateway (one atomic call)
 // ---------------------------------------------------------------------------
 
 async function processRound(
@@ -367,151 +316,87 @@ async function processRound(
     console.log(`[cron] R${roundId} ${entry.action}: ${entry.detail}${entry.txId ? ` tx=${entry.txId}` : ''}${entry.error ? ` ERR=${entry.error}` : ''}`)
   }
 
-  // 1. Read round on-chain (re-read for fresh state since parallel scan may be stale)
+  // 1. Read round on-chain
   const round = await readRound(roundId)
   if (!round || (round.totalUp + round.totalDown === 0)) {
     return currentNonce
   }
 
-  // Quick check: if round is already resolved, verify if all bets are claimed
-  // to avoid unnecessary on-chain reads for old fully-processed rounds
+  // Already resolved — nothing to do (resolve-and-distribute is atomic)
   if (round.resolved) {
-    const bettors = await readRoundBettors(roundId)
-    if (bettors.length === 0) {
-      return currentNonce
-    }
-    let allClaimed = true
-    for (const bettor of bettors) {
-      if (!allClaimed) break
-      const userBets = await readUserBets(roundId, bettor)
-      for (const side of ['UP', 'DOWN'] as const) {
-        const bet = side === 'UP' ? userBets.up : userBets.down
-        if (bet && !bet.claimed) { allClaimed = false; break }
-      }
-    }
-    if (allClaimed) {
-      return currentNonce
-    }
+    clog({ action: 'already-resolved', detail: `start=${round.priceStart} end=${round.priceEnd}` })
+    return currentNonce
   }
 
   clog({
     action: 'found',
-    detail: `UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)} resolved=${round.resolved}`,
+    detail: `UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)}`,
   })
 
+  // 2. Fetch Pyth prices
   let priceStart: number, priceEnd: number
-
-  if (!round.resolved) {
-    // 2. Fetch Pyth prices
-    try {
-      const prices = await fetchRoundPrices(roundId)
-      priceStart = prices.priceStart
-      priceEnd = prices.priceEnd
-    } catch (e) {
-      clog({ action: 'error', detail: `Pyth prices unavailable`, error: String(e) })
-      return currentNonce
-    }
-
-    const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
-    clog({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome}` })
-
-    // 3. Try resolve-round (may fail on-chain if Stacks block time is behind)
-    //    Even if this fails, claim-on-behalf has a safety net that resolves without block time check
-    try {
-      const { txId, nextNonce } = await broadcastWithRetry(
-        (nonce) => makeContractCall({
-          contractAddress: CONTRACT_ADDRESS,
-          contractName: CONTRACT_NAME,
-          functionName: 'resolve-round',
-          functionArgs: [uintCV(roundId), uintCV(priceStart), uintCV(priceEnd)],
-          senderKey: privateKey,
-          network: STACKS_TESTNET,
-          fee: TX_FEE,
-          nonce,
-        }),
-        currentNonce
-      )
-      clog({ action: 'resolve-round', detail: `broadcast ok`, txId })
-      await waitForMempool(txId)
-      currentNonce = nextNonce
-    } catch (e) {
-      // Don't return early — continue to claims which can resolve the round via safety net
-      clog({ action: 'warn', detail: `resolve-round failed, will try claim-on-behalf`, error: String(e) })
-    }
-  } else {
-    priceStart = round.priceStart
-    priceEnd = round.priceEnd
-    clog({ action: 'already-resolved', detail: `start=${priceStart} end=${priceEnd}` })
-  }
-
-  // 4. Read bettors
-  const bettors = await readRoundBettors(roundId)
-  if (bettors.length === 0) {
-    clog({ action: 'skip', detail: `no bettors` })
+  try {
+    const prices = await fetchRoundPrices(roundId)
+    priceStart = prices.priceStart
+    priceEnd = prices.priceEnd
+  } catch (e) {
+    clog({ action: 'error', detail: 'Pyth prices unavailable', error: String(e) })
     return currentNonce
   }
 
-  clog({ action: 'bettors', detail: `${bettors.length} bettor(s)` })
+  const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
+  clog({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome}` })
 
-  // 4.5 Counterparty validation — skip claims if single wallet bet both sides (jackpot exploit)
-  const validity = await getRoundBettorValidity(roundId)
-  if (!validity.hasCounterparty && validity.upBettors > 0 && validity.downBettors > 0) {
-    clog({ action: 'skip-no-counterparty', detail: `round=${roundId} has ${validity.uniqueWallets} unique wallet(s) on both sides — jackpot locked, skipping claims` })
+  // 3. Circuit breaker — validate prices before submitting
+  const validation = await validatePrices(priceStart, priceEnd)
+  if (!validation.valid) {
+    circuitBreakerFailures++
+    clog({ action: 'circuit-breaker', detail: validation.reason!, error: `consecutive=${circuitBreakerFailures}` })
+    if (circuitBreakerFailures >= 3) {
+      await alert('CRITICAL', `Circuit breaker: ${circuitBreakerFailures} consecutive failures`, {
+        roundId, priceStart, priceEnd, reason: validation.reason,
+      })
+    }
     return currentNonce
   }
+  circuitBreakerFailures = 0 // reset on success
 
-  // 5. Claim on behalf of each bettor
-  let claimedAny = false
-  for (const bettor of bettors) {
-    const userBets = await readUserBets(roundId, bettor)
+  // 4. Call resolve-and-distribute via gateway (one atomic call)
+  try {
+    const { txId, nextNonce } = await broadcastWithRetry(
+      (nonce) => makeContractCall({
+        contractAddress: GATEWAY_ADDRESS,
+        contractName: GATEWAY_NAME,
+        functionName: 'resolve-and-distribute',
+        functionArgs: [uintCV(roundId), uintCV(priceStart), uintCV(priceEnd)],
+        senderKey: privateKey,
+        network: STACKS_NETWORK,
+        postConditionMode: PostConditionMode.Allow,
+        fee: TX_FEE,
+        nonce,
+      }),
+      currentNonce
+    )
+    clog({ action: 'resolve-and-distribute', detail: `broadcast ok`, txId })
+    await waitForMempool(txId)
+    currentNonce = nextNonce
 
-    for (const side of ['UP', 'DOWN'] as const) {
-      const bet = side === 'UP' ? userBets.up : userBets.down
-      if (!bet || bet.claimed) continue
-
-      try {
-        const { txId, nextNonce } = await broadcastWithRetry(
-          (nonce) => makeContractCall({
-            contractAddress: CONTRACT_ADDRESS,
-            contractName: CONTRACT_NAME,
-            functionName: 'claim-on-behalf',
-            functionArgs: [
-              standardPrincipalCV(bettor),
-              uintCV(roundId),
-              stringAsciiCV(side),
-              uintCV(priceStart),
-              uintCV(priceEnd),
-            ],
-            senderKey: privateKey,
-            network: STACKS_TESTNET,
-            postConditionMode: PostConditionMode.Allow,
-            fee: TX_FEE,
-            nonce,
-          }),
-          currentNonce
-        )
-        clog({ action: 'claim-on-behalf', detail: `${bettor.slice(0, 8)}... ${side}`, txId })
-        await waitForMempool(txId)
-        currentNonce = nextNonce
-        claimedAny = true
-      } catch (e) {
-        clog({ action: 'error', detail: `claim-on-behalf ${bettor.slice(0, 8)}... ${side}`, error: String(e) })
+    // 5. Post-settlement: credit jackpot tickets in Redis (off-chain)
+    // NOTE: Jackpot balance accumulation is now on-chain (1% stays in contract).
+    // We only credit tickets here for the daily draw lottery.
+    try {
+      const hasCounterparty = round.totalUp > 0 && round.totalDown > 0
+      if (hasCounterparty) {
+        await creditTicketsAfterSettlement(roundId.toString(), [])
+        clog({ action: 'jackpot-tickets', detail: 'tickets credited (balance on-chain)' })
       }
-    }
-  }
-
-  // 6. Project jackpot balance for instant UI update
-  if (claimedAny && priceStart !== priceEnd) {
-    try {
-      const totalPool = round.totalUp + round.totalDown
-      const jackpotFee = Math.floor(totalPool / 100) // 1% of total pool
-      const currentBalance = await readJackpotBalance()
-      const projected = currentBalance + jackpotFee
-      await setProjectedJackpot(projected)
-      clog({ action: 'jackpot-projected', detail: `${currentBalance} + ${jackpotFee} = ${projected} (${(projected / 1e6).toFixed(2)} USDCx)` })
     } catch (e) {
-      clog({ action: 'warn', detail: 'Failed to project jackpot', error: String(e) })
+      clog({ action: 'warn', detail: 'Jackpot ticket credit failed (non-fatal)', error: String(e) })
     }
+
+  } catch (e) {
+    clog({ action: 'error', detail: 'resolve-and-distribute failed', error: String(e) })
+    await alert('WARN', `Settlement failed for round ${roundId}`, { error: String(e) })
   }
 
   return currentNonce
@@ -522,7 +407,6 @@ async function processRound(
 // ---------------------------------------------------------------------------
 
 export async function GET(req: Request) {
-  // Authenticate: Vercel Cron sends Authorization header with CRON_SECRET
   const authHeader = req.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -531,32 +415,23 @@ export async function GET(req: Request) {
   const log: LogEntry[] = []
   const startTime = Date.now()
 
-  // Helper: push to log array AND console.log for Vercel visibility
   const logAndPrint = (entry: LogEntry) => {
     log.push(entry)
     console.log(`[cron] ${entry.action}: ${entry.detail}${entry.txId ? ` tx=${entry.txId}` : ''}${entry.error ? ` ERR=${entry.error}` : ''}`)
   }
 
   try {
-    // Init wallet
     const { privateKey, address } = await initWallet()
-    logAndPrint({ action: 'init', detail: `Wallet: ${address}` })
+    logAndPrint({ action: 'init', detail: `Sponsor: ${address}` })
 
-    // Verify wallet matches contract DEPLOYER
-    if (address !== CONTRACT_ADDRESS) {
-      logAndPrint({ action: 'fatal', detail: `Wallet ${address} does NOT match DEPLOYER ${CONTRACT_ADDRESS}` })
-      return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
-    }
-
-    // Acquire sponsor lock so cron and sponsor endpoint don't compete for nonces
-    const gotLock = await acquireSponsorLock(10000) // longer timeout for cron
+    // Acquire sponsor lock
+    const gotLock = await acquireSponsorLock(10000)
     if (!gotLock) {
-      logAndPrint({ action: 'skip', detail: 'Could not acquire sponsor lock (sponsor endpoint busy)' })
+      logAndPrint({ action: 'skip', detail: 'Could not acquire sponsor lock' })
       return NextResponse.json({ ok: false, duration: Date.now() - startTime, log })
     }
 
     try {
-      // Use shared KV nonce tracker (same as sponsor endpoint)
       const tracked = await getSponsorNonce()
       let nonce: number
       if (tracked) {
@@ -567,22 +442,16 @@ export async function GET(req: Request) {
         logAndPrint({ action: 'nonce', detail: `API nonce (no KV): ${nonce}` })
       }
 
-      // --- Optimized scan: KV-first + small on-chain safety net ---
-      // 1. KV rounds-with-bets: sponsor endpoint tracks every round that received a bet (0 Hiro calls)
-      // 2. On-chain scan: only last 5 rounds as safety net (5 Hiro calls instead of 120)
-      // 3. Active users check: if no users and no KV rounds, skip entirely
-
+      // Optimized scan: KV-first + small on-chain safety net
       const kvRounds = await getRoundsWithBets()
       const activeUsers = await getActiveUserCount()
       const currentRoundId = Math.floor(Date.now() / 60000)
 
       logAndPrint({ action: 'state', detail: `KV rounds=${kvRounds.length} [${kvRounds.join(',')}] activeUsers=${activeUsers}` })
 
-      // Small on-chain scan (last 5 min) as safety net — catches bets placed
-      // before the KV tracking was deployed, or if KV write failed
+      // Small on-chain scan (last 5 min) as safety net
       const SCAN_BACK = 5
       const scanIds = Array.from({ length: SCAN_BACK }, (_, i) => currentRoundId - SCAN_BACK + i)
-      // Filter out IDs already in KV to avoid duplicate reads
       const kvSet = new Set(kvRounds)
       const onChainOnlyIds = scanIds.filter(id => !kvSet.has(id))
 
@@ -592,41 +461,34 @@ export async function GET(req: Request) {
           onChainOnlyIds.map(id => readRound(id).then(r => ({ id, round: r })).catch(() => ({ id, round: null })))
         )
         for (const r of results) {
-          if (r.round && (r.round.totalUp + r.round.totalDown > 0)) {
+          if (r.round && (r.round.totalUp + r.round.totalDown > 0) && !r.round.resolved) {
             scanActiveIds.push(r.id)
           }
         }
       }
 
-      // Merge KV + on-chain scan, deduplicate, sort ascending
       const allIds = [...new Set([...kvRounds, ...scanActiveIds])].sort((a, b) => a - b)
 
       if (allIds.length === 0) {
-        logAndPrint({ action: 'skip', detail: `No rounds with bets (scanned ${onChainOnlyIds.length} on-chain)` })
+        logAndPrint({ action: 'skip', detail: 'No rounds with bets' })
       } else {
-        logAndPrint({ action: 'scan', detail: `${allIds.length} rounds to process: [${allIds.join(',')}] (${onChainOnlyIds.length} on-chain checked)` })
+        logAndPrint({ action: 'scan', detail: `${allIds.length} rounds to process: [${allIds.join(',')}]` })
       }
 
-      // Process only rounds that have bets (sequentially — needs nonce ordering)
       for (const roundId of allIds) {
         const prevNonce = nonce
         nonce = await processRound(roundId, nonce, privateKey, log)
 
-        // If nonce didn't change, round was fully processed — remove from KV tracking
-        // (processRound returns same nonce when round has no work left)
         if (nonce === prevNonce && kvSet.has(roundId)) {
           await removeResolvedRound(roundId)
           logAndPrint({ action: 'kv-cleanup', detail: `Removed R${roundId} from rounds-with-bets` })
         }
       }
 
-      logAndPrint({ action: 'done', detail: `Processed ${allIds.length} rounds (${onChainOnlyIds.length} on-chain reads)` })
-
-      // Persist final nonce to KV so sponsor endpoint picks it up
+      logAndPrint({ action: 'done', detail: `Processed ${allIds.length} rounds` })
       await setSponsorNonce(BigInt(nonce))
-      logAndPrint({ action: 'nonce', detail: `KV nonce updated to ${nonce}` })
+
     } catch (e) {
-      // Clear stale nonce on error so sponsor endpoint re-fetches from API
       await clearSponsorNonce()
       throw e
     } finally {
@@ -635,6 +497,7 @@ export async function GET(req: Request) {
 
   } catch (e) {
     logAndPrint({ action: 'fatal', detail: 'Unhandled error', error: e instanceof Error ? e.message : String(e) })
+    await alert('CRITICAL', 'Cron resolve fatal error', { error: String(e) })
   }
 
   const duration = Date.now() - startTime

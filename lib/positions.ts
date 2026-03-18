@@ -1,9 +1,14 @@
 /**
- * Posições e P&L em localStorage (MVP, sem auth).
- * Em produção: backend/on-chain.
+ * Positions and P&L in localStorage (MVP, no auth).
+ * Network-prefixed keys to prevent ghost data cross-network.
+ * 7-day TTL on trades to prevent unbounded growth.
  */
 
-const KEY = 'bitpredix_trades'
+import { NETWORK_NAME } from './config'
+
+const TRADES_KEY = `predix:${NETWORK_NAME}:trades`
+const RESULTS_KEY = `predix:${NETWORK_NAME}:results`
+const TRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 export interface StoredTrade {
   roundId: string
@@ -20,16 +25,23 @@ export interface Position {
   costDown: number
 }
 
+function cleanExpiredTrades(trades: StoredTrade[]): StoredTrade[] {
+  const cutoff = Date.now() - TRADE_TTL_MS
+  return trades.filter(t => t.ts > cutoff)
+}
+
 export function saveTrade(t: Omit<StoredTrade, 'ts'>): void {
   if (typeof window === 'undefined') return
-  const list: StoredTrade[] = JSON.parse(localStorage.getItem(KEY) ?? '[]')
+  const raw: StoredTrade[] = JSON.parse(localStorage.getItem(TRADES_KEY) ?? '[]')
+  const list = cleanExpiredTrades(raw)
   list.push({ ...t, ts: Date.now() })
-  localStorage.setItem(KEY, JSON.stringify(list))
+  localStorage.setItem(TRADES_KEY, JSON.stringify(list))
 }
 
 export function getPositionForRound(roundId: string): Position {
   if (typeof window === 'undefined') return { sharesUp: 0, sharesDown: 0, costUp: 0, costDown: 0 }
-  const list: StoredTrade[] = JSON.parse(localStorage.getItem(KEY) ?? '[]')
+  const raw: StoredTrade[] = JSON.parse(localStorage.getItem(TRADES_KEY) ?? '[]')
+  const list = cleanExpiredTrades(raw)
   const pos: Position = { sharesUp: 0, sharesDown: 0, costUp: 0, costDown: 0 }
   for (const t of list) {
     if (t.roundId !== roundId) continue
@@ -44,21 +56,15 @@ export function getPositionForRound(roundId: string): Position {
   return pos
 }
 
-/** P&L em USD. outcome: 'UP' | 'DOWN' (quem ganhou). */
+/** P&L in USD. outcome: 'UP' | 'DOWN' (who won). */
 export function getPnl(roundId: string, outcome: 'UP' | 'DOWN', pos: Position): number {
   const totalCost = pos.costUp + pos.costDown
-  
-  // Quando uma rodada resolve:
-  // - Shares do lado vencedor valem $1.00 cada
-  // - Shares do lado perdedor valem $0.00
   const winningShares = outcome === 'UP' ? pos.sharesUp : pos.sharesDown
-  const payout = winningShares * 1.00 // Cada share vencedora vale exatamente $1.00
-  
-  // P&L = quanto recebeu - quanto gastou
+  const payout = winningShares * 1.00
   return payout - totalCost
 }
 
-const MY_RESULTS_KEY = 'bitpredix_my_results'
+const MY_RESULTS_KEY = RESULTS_KEY
 
 export interface MyResult {
   roundId: string

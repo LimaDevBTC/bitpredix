@@ -10,6 +10,31 @@ const nextConfig = {
     '@stacks/network',
     '@stacks/wallet-sdk',
   ],
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "connect-src 'self' https://api.testnet.hiro.so https://api.mainnet.hiro.so https://hermes.pyth.network https://benchmarks.pyth.network wss://hermes.pyth.network",
+              "img-src 'self' data:",
+              "font-src 'self'",
+              "frame-ancestors 'none'",
+            ].join('; '),
+          },
+        ],
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig

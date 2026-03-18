@@ -4,8 +4,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { HIRO_API as HIRO_TESTNET, hiroHeaders } from '@/lib/hiro'
-const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx'
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv2'
+import { TOKEN_CONTRACT, BITPREDIX_CONTRACT } from '@/lib/config'
 const FETCH_TIMEOUT = 15000
 
 /**

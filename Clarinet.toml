@@ -24,3 +24,13 @@ epoch = "3.0"
 path = "contracts/predixv2-gateway.clar"
 clarity_version = 3
 epoch = "3.0"
+
+[contracts.predixv5]
+path = "contracts/predixv5.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.gatewayv4]
+path = "contracts/gatewayv4.clar"
+clarity_version = 3
+epoch = "3.0"

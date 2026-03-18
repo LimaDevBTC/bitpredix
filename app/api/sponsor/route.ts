@@ -6,6 +6,7 @@ import {
   PayloadType,
 } from '@stacks/transactions'
 import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
+import { NETWORK_NAME, BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT } from '@/lib/config'
 import {
   getSponsorNonce,
   setSponsorNonce,
@@ -13,47 +14,59 @@ import {
   acquireSponsorLock,
   releaseSponsorLock,
   addOptimisticBet,
-  addOptimisticEarlyBet,
   trackRoundWithBets,
   trackBettorSide,
-  getRoundBettorValidity,
 } from '@/lib/pool-store'
+import { recordEarlyBet, isEarlyBet } from '@/lib/jackpot'
+import { alert } from '@/lib/alerting'
 
-// Contratos permitidos para sponsorship (predixv2 + gateway + token)
-const GATEWAY_ID = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv2-gateway'
-const ALLOWED_CONTRACTS = [
-  process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.predixv2',
-  GATEWAY_ID,
-  process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID || 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK.test-usdcx',
-]
+// Contracts allowed for sponsorship (fail-fast — no fallbacks)
+const ALLOWED_CONTRACTS = [BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT]
 
-// Funcoes permitidas per contract:
-// - gateway: place-bet only
-// - predixv2: claim-round-side, claim-on-behalf, resolve-round
-// - test-usdcx: approve, mint
+// Functions allowed — NO claim functions (settlement is sponsor-only via cron)
 const ALLOWED_FUNCTIONS = [
   'place-bet',
-  'claim-round-side',
-  'claim-on-behalf',
-  'resolve-round',
+  'resolve-and-distribute',
   'approve',
   'mint',
 ]
 
-// Cache da private key + address do sponsor (derivada uma vez)
+// Fee from env (default 50000 = 0.05 STX)
+const SPONSOR_FEE = BigInt(process.env.SPONSOR_TX_FEE || '50000')
+
+// Body size limit
+const MAX_BODY_SIZE = 100 * 1024 // 100KB
+
+// Rate limiting (in-memory, reset on redeploy — good enough for serverless)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_MAX = 10
+const RATE_LIMIT_WINDOW_MS = 60_000
+
+function checkRateLimit(walletHash: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(walletHash)
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(walletHash, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+    return true
+  }
+  entry.count++
+  return entry.count <= RATE_LIMIT_MAX
+}
+
+// Cache sponsor private key + address
 let sponsorKeyCache: string | null = null
 let sponsorAddressCache: string | null = null
 
 async function getSponsorPrivateKey(): Promise<string> {
   if (sponsorKeyCache) return sponsorKeyCache
 
-  const mnemonic = process.env.ORACLE_MNEMONIC
-  if (!mnemonic) throw new Error('ORACLE_MNEMONIC not configured')
+  const mnemonic = process.env.SPONSOR_MNEMONIC || process.env.ORACLE_MNEMONIC
+  if (!mnemonic) throw new Error('SPONSOR_MNEMONIC not configured')
 
   const wallet = await generateWallet({ secretKey: mnemonic, password: '' })
   const account = wallet.accounts[0]
   sponsorKeyCache = account.stxPrivateKey
-  sponsorAddressCache = getStxAddress({ account, network: 'testnet' })
+  sponsorAddressCache = getStxAddress({ account, network: NETWORK_NAME })
   return sponsorKeyCache
 }
 
@@ -62,12 +75,17 @@ const g = globalThis as unknown as { __sponsorLock?: Promise<void> }
 g.__sponsorLock ??= Promise.resolve()
 
 export async function POST(req: NextRequest) {
+  // Body size check
+  const contentLength = parseInt(req.headers.get('content-length') || '0', 10)
+  if (contentLength > MAX_BODY_SIZE) {
+    return NextResponse.json({ error: 'Request too large' }, { status: 413 })
+  }
+
   // Try Redis lock first; fall back to in-memory promise chain
   const gotRedisLock = await acquireSponsorLock(3000)
 
   let releaseLock: () => void = () => {}
   if (!gotRedisLock) {
-    // In-memory serialization fallback
     const prevLock = g.__sponsorLock!
     g.__sponsorLock = new Promise<void>(resolve => { releaseLock = resolve })
     await prevLock
@@ -80,16 +98,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing or invalid txHex' }, { status: 400 })
     }
 
-    // 1. Deserializa a transacao
+    // Body size double-check on txHex
+    if (txHex.length > MAX_BODY_SIZE * 2) { // hex = 2 chars per byte
+      return NextResponse.json({ error: 'Transaction too large' }, { status: 413 })
+    }
+
+    // 1. Deserialize transaction
     const transaction = deserializeTransaction(txHex)
 
-    // 2. Valida que e um contract-call para contratos permitidos
+    // 2. Validate contract-call to allowed contracts
     const payload = transaction.payload
     if (payload.payloadType !== PayloadType.ContractCall) {
       return NextResponse.json({ error: 'Only contract calls are allowed' }, { status: 400 })
     }
 
-    // PayloadType.ContractCall payloads have contractAddress, contractName, functionName
     const contractPayload = payload as {
       payloadType: number
       contractAddress: { hash160: string; type: number; version: number }
@@ -119,32 +141,19 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // --- COUNTERPARTY VALIDATION for claim functions ---
-    // Block sponsored claims on rounds without valid counterparty (jackpot exploit prevention).
-    // A valid counterparty requires 2+ distinct wallets on opposite sides.
-    // Without this, a single user betting one side can drain the jackpot.
-    if (functionName === 'claim-round-side' || functionName === 'claim-on-behalf') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const claimArgs = (payload as any).functionArgs
-      // claim-round-side: (round-id, side, price-start, price-end) — roundId is arg[0]
-      // claim-on-behalf: (user, round-id, side, price-start, price-end) — roundId is arg[1]
-      const roundIdArgIdx = functionName === 'claim-on-behalf' ? 1 : 0
-      if (Array.isArray(claimArgs) && claimArgs.length > roundIdArgIdx) {
-        const roundId = Number(claimArgs[roundIdArgIdx]?.value ?? 0)
-        if (roundId > 0) {
-          const validity = await getRoundBettorValidity(roundId)
-          if (!validity.hasCounterparty && (validity.upBettors > 0 || validity.downBettors > 0)) {
-            console.log(`[sponsor] REJECTED ${functionName}: round=${roundId} has no counterparty (up=${validity.upBettors}, down=${validity.downBettors}, unique=${validity.uniqueWallets})`)
-            return NextResponse.json(
-              { error: 'Round without counterparty — Jackpot locked', reason: 'no_counterparty' },
-              { status: 403 }
-            )
-          }
-        }
-      }
+    // Rate limiting by wallet
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const originAuth = (transaction.auth as any)?.spendingCondition ?? (transaction.auth as any)?.originCondition
+    const originSignerHash = originAuth?.signer as string | undefined
+
+    if (originSignerHash && !checkRateLimit(originSignerHash)) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded (max 10 txs/min)', reason: 'rate_limited' },
+        { status: 429 }
+      )
     }
 
-    // --- TIMING ENFORCEMENT + EARLY FLAG VALIDATION for place-bet ---
+    // --- TIMING ENFORCEMENT for place-bet ---
     if (functionName === 'place-bet') {
       const now = Date.now()
       const currentRoundId = Math.floor(now / 1000 / 60)
@@ -159,50 +168,21 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         )
       }
-
-      // Early flag validation: reject early=true if real clock says >22s into round
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const funcArgs = (payload as any).functionArgs
-      if (Array.isArray(funcArgs) && funcArgs.length >= 4) {
-        const earlyArg = funcArgs[3]?.value === true || String(funcArgs[3]?.value) === 'true'
-        if (earlyArg) {
-          const roundId = Number(funcArgs[0]?.value ?? 0)
-          const roundStartMs = roundId * 60 * 1000
-          const elapsedMs = now - roundStartMs
-          const EARLY_WINDOW_MS = 22_000 // 20s + 2s tolerance for clock skew
-
-          if (elapsedMs > EARLY_WINDOW_MS) {
-            console.log(`[sponsor] REJECTED early=true: ${(elapsedMs / 1000).toFixed(1)}s into round (limit=${EARLY_WINDOW_MS / 1000}s)`)
-            return NextResponse.json(
-              { error: 'Early window expired', reason: 'early_expired' },
-              { status: 403 }
-            )
-          }
-        }
-      }
     }
 
-    // 3. Sponsora a transacao (with tracked nonce if available)
+    // 3. Sponsor the transaction
     const sponsorPrivateKey = await getSponsorPrivateKey()
 
-    // Detect if origin == sponsor (deployer betting on their own account).
-    // In this case, ONE tx consumes TWO nonces from the same account:
-    // the origin nonce (user) AND the sponsor nonce.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const originAuth = (transaction.auth as any)?.spendingCondition ?? (transaction.auth as any)?.originCondition
-    const originSignerHash = originAuth?.signer as string | undefined
-
+    // Block deployer from placing bets (self-sponsored = 2 nonces from same account)
     let isSelfSponsored = false
     if (originSignerHash && sponsorAddressCache) {
       try {
         const { c32addressDecode } = await import('c32check')
         const [, sponsorHash] = c32addressDecode(sponsorAddressCache)
         isSelfSponsored = originSignerHash.toLowerCase() === sponsorHash.toLowerCase()
-      } catch { /* fall through — treat as not self-sponsored */ }
+      } catch { /* treat as not self-sponsored */ }
     }
 
-    // Block deployer from placing bets — self-sponsored txs consume 2 nonces
-    // from the same account and cause cascading nonce conflicts
     if (isSelfSponsored) {
       return NextResponse.json(
         { error: 'Deployer wallet cannot place bets (use a different wallet)' },
@@ -214,27 +194,19 @@ export async function POST(req: NextRequest) {
     const sponsorOpts: any = {
       transaction,
       sponsorPrivateKey,
-      fee: BigInt(50000), // 0.05 STX
-      network: 'testnet',
+      fee: SPONSOR_FEE,
+      network: NETWORK_NAME,
     }
 
-    // --- Determine initial sponsor nonce ---
+    // Determine initial sponsor nonce
     let sponsorNonce: bigint | undefined
-
-    if (isSelfSponsored) {
-      const originNonce = BigInt(originAuth?.nonce ?? 0)
-      sponsorNonce = originNonce + BigInt(1)
-      console.log(`[sponsor] Self-sponsored: origin nonce=${originNonce}, sponsor nonce=${sponsorNonce}`)
-    } else {
-      const tracked = await getSponsorNonce()
-      if (tracked) {
-        sponsorNonce = tracked.nonce
-        console.log(`[sponsor] Using KV tracked nonce: ${sponsorNonce}`)
-      }
-      // If no tracked nonce, sponsorTransaction will auto-fetch; we'll correct via retry if needed
+    const tracked = await getSponsorNonce()
+    if (tracked) {
+      sponsorNonce = tracked.nonce
+      console.log(`[sponsor] Using KV tracked nonce: ${sponsorNonce}`)
     }
 
-    // --- Sponsor + Broadcast with retry on nonce errors ---
+    // Sponsor + Broadcast with retry on nonce errors
     const MAX_RETRIES = 3
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let lastResult: any = null
@@ -252,14 +224,12 @@ export async function POST(req: NextRequest) {
       const auth = sponsoredTx.auth as any
       const usedOriginNonce = auth.spendingCondition?.nonce
       const usedSponsorNonce = auth.sponsorSpendingCondition?.nonce
-      console.log(`[sponsor] Attempt ${attempt}: origin=${usedOriginNonce}, sponsor=${usedSponsorNonce}, self=${isSelfSponsored}`)
+      console.log(`[sponsor] Attempt ${attempt}: origin=${usedOriginNonce}, sponsor=${usedSponsorNonce}`)
 
       let result: Record<string, unknown>
       try {
-        result = await broadcastTransaction({ transaction: sponsoredTx, network: 'testnet' }) as Record<string, unknown>
+        result = await broadcastTransaction({ transaction: sponsoredTx, network: NETWORK_NAME }) as Record<string, unknown>
       } catch (broadcastErr) {
-        // broadcastTransaction can throw "fail to parse node response" when the node
-        // returns non-JSON (e.g., HTML error page on 429/503). Retry with backoff.
         const msg = broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr)
         console.warn(`[sponsor] Broadcast exception attempt ${attempt}: ${msg}`)
         if (attempt < MAX_RETRIES && msg.includes('parse')) {
@@ -276,14 +246,12 @@ export async function POST(req: NextRequest) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const reasonData = r.reason_data as any
 
-        // Retry on nonce errors — use the expected nonce from the error
         if ((reason === 'BadNonce' || reason === 'ConflictingNonceInMempool') && attempt < MAX_RETRIES) {
           if (reasonData?.expected != null) {
             sponsorNonce = BigInt(reasonData.expected)
             console.log(`[sponsor] Nonce error (${reason}), retrying with nonce=${sponsorNonce}`)
             continue
           }
-          // ConflictingNonceInMempool doesn't always have expected — try incrementing
           if (sponsorNonce !== undefined) {
             sponsorNonce += BigInt(1)
             console.log(`[sponsor] Nonce conflict, retrying with nonce=${sponsorNonce}`)
@@ -291,7 +259,6 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Non-retryable error
         await clearSponsorNonce()
         console.error('[sponsor] Broadcast rejected:', JSON.stringify(result))
         return NextResponse.json(
@@ -326,19 +293,26 @@ export async function POST(req: NextRequest) {
                 await trackRoundWithBets(roundId)
                 console.log(`[sponsor] KV optimistic: round=${roundId} ${side} $${(amountMicro / 1e6).toFixed(2)} txid=${result.txid}`)
 
-                // Track wallet per side for counterparty validation (jackpot eligibility)
-                const signerHash = originAuth?.signer as string | undefined
-                if (signerHash) {
-                  await trackBettorSide(roundId, signerHash.toLowerCase(), side as 'UP' | 'DOWN')
-                  console.log(`[sponsor] Bettor tracked: round=${roundId} ${side} wallet=${signerHash.slice(0, 8)}...`)
+                // Track wallet per side for counterparty validation
+                if (originSignerHash) {
+                  await trackBettorSide(roundId, originSignerHash.toLowerCase(), side as 'UP' | 'DOWN')
                 }
 
-                // Track early bets for jackpot display (KV optimistic — real data is on-chain)
-                const earlyArg = Array.isArray(funcArgs) && funcArgs.length >= 4 &&
-                  (funcArgs[3]?.value === true || String(funcArgs[3]?.value) === 'true')
-                if (earlyArg) {
-                  await addOptimisticEarlyBet(roundId, side as 'UP' | 'DOWN', amountMicro)
-                  console.log(`[sponsor] KV early jackpot: round=${roundId} ${side} $${(amountMicro / 1e6).toFixed(2)}`)
+                // Track early bet for jackpot (off-chain determination)
+                const now = Date.now()
+                const roundStartMs = roundId * 60 * 1000
+                const betTimestampS = Math.floor(now / 1000)
+                const roundStartS = Math.floor(roundStartMs / 1000)
+                if (isEarlyBet(betTimestampS, roundStartS) && originSignerHash) {
+                  await recordEarlyBet({
+                    user: originSignerHash.toLowerCase(),
+                    side: side as 'UP' | 'DOWN',
+                    amountUsd: amountMicro / 1e6,
+                    roundId: roundId.toString(),
+                    betTimestampS,
+                    roundStartS,
+                  })
+                  console.log(`[sponsor] Jackpot early bet tracked: round=${roundId} ${side}`)
                 }
               }
             }
@@ -356,6 +330,7 @@ export async function POST(req: NextRequest) {
 
     // Exhausted retries or unexpected result
     await clearSponsorNonce()
+    await alert('CRITICAL', 'Sponsor broadcast failed after retries', { lastResult })
     console.error('[sponsor] Unexpected broadcast result:', lastResult)
     return NextResponse.json({ error: 'Unexpected broadcast result' }, { status: 500 })
   } catch (err: unknown) {

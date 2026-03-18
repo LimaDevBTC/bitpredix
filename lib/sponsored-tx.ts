@@ -1,5 +1,6 @@
 import { request } from '@stacks/connect'
 import { makeUnsignedContractCall, ClarityValue, PostConditionMode } from '@stacks/transactions'
+import { NETWORK_NAME } from './config'
 
 const PUBLIC_KEY_STORAGE = 'stx_public_key'
 
@@ -49,7 +50,7 @@ export async function sponsoredContractCall(params: {
     functionName: params.functionName,
     functionArgs: params.functionArgs,
     publicKey: params.publicKey,
-    network: 'testnet',
+    network: NETWORK_NAME,
     fee: 0,
     sponsored: true,
     postConditionMode: PostConditionMode.Allow,

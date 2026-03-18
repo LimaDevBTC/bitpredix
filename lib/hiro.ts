@@ -1,6 +1,10 @@
 /** Centralized Hiro API config — URL + authenticated headers */
 
-export const HIRO_API = 'https://api.testnet.hiro.so'
+import { NETWORK_NAME } from './config'
+
+export const HIRO_API = NETWORK_NAME === 'mainnet'
+  ? 'https://api.mainnet.hiro.so'
+  : 'https://api.testnet.hiro.so'
 
 const API_KEY = process.env.HIRO_API_KEY
 
