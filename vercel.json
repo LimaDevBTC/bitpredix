@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/resolve",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/jackpot-draw",
+      "schedule": "0 1 * * *"
     }
   ]
 }
