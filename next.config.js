@@ -26,7 +26,7 @@ const nextConfig = {
               "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline'",
               "connect-src 'self' https://api.testnet.hiro.so https://api.mainnet.hiro.so https://hermes.pyth.network https://benchmarks.pyth.network wss://hermes.pyth.network",
-              "img-src 'self' data:",
+              "img-src 'self' data: https://cdn.jsdelivr.net",
               "font-src 'self'",
               "frame-ancestors 'none'",
             ].join('; '),

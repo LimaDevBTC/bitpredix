@@ -897,7 +897,7 @@ export function MarketCardV4() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/moneybag.png" alt="" className="w-9 h-9 object-contain select-none pointer-events-none" draggable={false} />
               {/* Value centered on the bag body */}
-              <span className="absolute top-1/2 left-1/2 -translate-x-[20%] translate-y-[35%] font-mono text-[9px] font-black text-zinc-900 leading-none whitespace-nowrap drop-shadow-[0_0_2px_rgba(251,191,36,0.6)]">
+              <span className="absolute top-1/2 left-1/2 -translate-x-[20%] translate-y-[35%] font-mono text-[7px] font-black text-zinc-900 leading-none whitespace-nowrap drop-shadow-[0_0_2px_rgba(251,191,36,0.6)]">
                 ${jackpot.balance >= 1000
                   ? `${(jackpot.balance / 1000).toFixed(1)}k`
                   : jackpot.balance.toFixed(0)}
