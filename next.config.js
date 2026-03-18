@@ -1,14 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    instrumentationHook: true,
-  },
   transpilePackages: [
     '@stacks/connect',
+  ],
+  serverExternalPackages: [
     '@stacks/transactions',
     '@stacks/network',
     '@stacks/wallet-sdk',
+    '@stacks/common',
+    '@stacks/encryption',
+    'c32check',
+    '@noble/secp256k1',
+    '@noble/hashes',
   ],
   async rewrites() {
     return [
