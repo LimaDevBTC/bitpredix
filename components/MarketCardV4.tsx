@@ -57,8 +57,8 @@ interface RoundResult {
   roundId: number
   outcome: 'UP' | 'DOWN'
   netPnL: number | null  // positive = won, negative = lost, null = pool data unavailable
-  poolPnL: number | null  // PnL from pool only (excluding jackpot)
-  jackpotPnL: number | null  // PnL from jackpot bonus
+  poolPnL: number | null  // PnL from pool only
+  ticketsEarned: number   // jackpot tickets earned from early bets
   won: boolean
   refund?: boolean  // true when no counterparty — bets returned, no win/loss
 }
@@ -155,7 +155,7 @@ export function MarketCardV4() {
               outcome: currentPrice > prevOpenPrice ? 'UP' : 'DOWN',
               netPnL: null,
               poolPnL: null,
-              jackpotPnL: null,
+              ticketsEarned: 0,
               won: false,
               refund: true,
             })
@@ -165,7 +165,6 @@ export function MarketCardV4() {
             const winningBet = outcome === 'UP' ? prevBets.up : prevBets.down
 
             let poolPnL: number | null = null
-            let jackpotPnL: number | null = null
             if (winningBet > 0 && prevPool.totalUp > 0 && prevPool.totalDown > 0) {
               const winningPool = outcome === 'UP' ? prevPool.totalUp : prevPool.totalDown
               const totalPool = prevPool.totalUp + prevPool.totalDown
@@ -173,32 +172,23 @@ export function MarketCardV4() {
               const netPayout = grossPayout * 0.97
               poolPnL = Math.round((netPayout - totalCost) * 100) / 100
               poolPnL = Math.max(-totalCost, poolPnL)
-
-              // Jackpot bonus: (user_early_amount / winning_early_pool) * jackpot_snapshot
-              const prevJackpot = jackpotRef.current
-              if (prevJackpot && prevJackpot.balance > 0) {
-                const userEarly = outcome === 'UP' ? prevBets.earlyUp : prevBets.earlyDown
-                const winningEarlyPool = outcome === 'UP' ? prevJackpot.earlyUp : prevJackpot.earlyDown
-                if (userEarly > 0 && winningEarlyPool > 0) {
-                  jackpotPnL = Math.round((userEarly / winningEarlyPool) * prevJackpot.balance * 100) / 100
-                }
-              }
             } else if (winningBet > 0) {
               poolPnL = Math.round((winningBet * 0.97 - totalCost) * 100) / 100
             } else {
               poolPnL = -totalCost
             }
 
-            const netPnL = poolPnL !== null
-              ? Math.round(((poolPnL + (jackpotPnL ?? 0)) * 100)) / 100
-              : null
+            // Jackpot tickets: early bets earn 1 ticket per USD (base, no multiplier client-side)
+            const ticketsEarned = Math.floor(prevBets.earlyUp + prevBets.earlyDown)
+
+            const netPnL = poolPnL
 
             setRoundResult({
               roundId: prevBets.roundId,
               outcome,
               netPnL,
               poolPnL,
-              jackpotPnL,
+              ticketsEarned,
               won: winningBet > 0,
             })
           }
@@ -956,9 +946,9 @@ export function MarketCardV4() {
                         {roundResult.poolPnL >= 0 ? '+' : '−'}${Math.abs(roundResult.poolPnL).toFixed(2)}
                       </span>
                     )}
-                    {roundResult.jackpotPnL != null && roundResult.jackpotPnL > 0 && (
+                    {roundResult.ticketsEarned > 0 && (
                       <span className="font-mono text-sm font-bold text-yellow-400">
-                        +${roundResult.jackpotPnL.toFixed(2)} 🎰
+                        +{roundResult.ticketsEarned} 🎟️
                       </span>
                     )}
                     <div className="flex-1" />

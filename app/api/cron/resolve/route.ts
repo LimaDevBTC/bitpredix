@@ -13,6 +13,7 @@ import { generateWallet, getStxAddress } from '@stacks/wallet-sdk'
 import { NETWORK_NAME, GATEWAY_CONTRACT, BITPREDIX_CONTRACT, splitContractId } from '@/lib/config'
 import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
 import { alert } from '@/lib/alerting'
+import { dispatchWebhookEvent } from '@/lib/agent-webhooks'
 import { creditTicketsAfterSettlement } from '@/lib/jackpot'
 import {
   getSponsorNonce,
@@ -305,12 +306,17 @@ async function validatePrices(priceStart: number, priceEnd: number): Promise<{ v
 // PROCESS ROUND — resolve-and-distribute via gateway (one atomic call)
 // ---------------------------------------------------------------------------
 
+interface ProcessResult {
+  nextNonce: number
+  resolved: boolean  // true = round was resolved (by us or already), safe to remove from KV
+}
+
 async function processRound(
   roundId: number,
   nonce: number,
   privateKey: string,
   log: LogEntry[]
-): Promise<number> {
+): Promise<ProcessResult> {
   let currentNonce = nonce
 
   const clog = (entry: LogEntry) => {
@@ -321,13 +327,13 @@ async function processRound(
   // 1. Read round on-chain
   const round = await readRound(roundId)
   if (!round || (round.totalUp + round.totalDown === 0)) {
-    return currentNonce
+    return { nextNonce: currentNonce, resolved: false }
   }
 
   // Already resolved — nothing to do (resolve-and-distribute is atomic)
   if (round.resolved) {
     clog({ action: 'already-resolved', detail: `start=${round.priceStart} end=${round.priceEnd}` })
-    return currentNonce
+    return { nextNonce: currentNonce, resolved: true }
   }
 
   clog({
@@ -343,7 +349,7 @@ async function processRound(
     priceEnd = prices.priceEnd
   } catch (e) {
     clog({ action: 'error', detail: 'Pyth prices unavailable', error: String(e) })
-    return currentNonce
+    return { nextNonce: currentNonce, resolved: false }
   }
 
   const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
@@ -359,7 +365,7 @@ async function processRound(
         roundId, priceStart, priceEnd, reason: validation.reason,
       })
     }
-    return currentNonce
+    return { nextNonce: currentNonce, resolved: false }
   }
   circuitBreakerFailures = 0 // reset on success
 
@@ -408,12 +414,23 @@ async function processRound(
       clog({ action: 'warn', detail: 'Jackpot ticket credit failed (non-fatal)', error: String(e) })
     }
 
+    // 6. Dispatch webhook events (fire and forget)
+    const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
+    dispatchWebhookEvent('round.resolved', {
+      roundId,
+      outcome,
+      priceStart,
+      priceEnd,
+      totalVolume: (round.totalUp + round.totalDown) / 1e6,
+    }).catch(() => {})
+
+    return { nextNonce: currentNonce, resolved: true }
+
   } catch (e) {
     clog({ action: 'error', detail: 'resolve-and-distribute failed', error: String(e) })
     await alert('WARN', `Settlement failed for round ${roundId}`, { error: String(e) })
+    return { nextNonce: currentNonce, resolved: false }
   }
-
-  return currentNonce
 }
 
 // ---------------------------------------------------------------------------
@@ -490,10 +507,10 @@ export async function GET(req: Request) {
       }
 
       for (const roundId of allIds) {
-        const prevNonce = nonce
-        nonce = await processRound(roundId, nonce, privateKey, log)
+        const result = await processRound(roundId, nonce, privateKey, log)
+        nonce = result.nextNonce
 
-        if (nonce === prevNonce && kvSet.has(roundId)) {
+        if (result.resolved && kvSet.has(roundId)) {
           await removeResolvedRound(roundId)
           logAndPrint({ action: 'kv-cleanup', detail: `Removed R${roundId} from rounds-with-bets` })
         }
