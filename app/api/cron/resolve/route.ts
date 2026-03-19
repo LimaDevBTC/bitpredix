@@ -26,6 +26,7 @@ import {
   getActiveUserCount,
   getRoundBettorValidity,
   getEarlyBets,
+  signalRoundResolved,
 } from '@/lib/pool-store'
 
 export const dynamic = 'force-dynamic'
@@ -169,18 +170,15 @@ async function broadcastWithRetry(
   throw new Error('Exhausted nonce retries')
 }
 
-async function waitForMempool(txId: string, maxWaitMs = 5000): Promise<string> {
-  const start = Date.now()
-  while (Date.now() - start < maxWaitMs) {
+/** Fire-and-forget: log tx status once it appears in mempool. Non-blocking. */
+function logMempoolStatus(txId: string): void {
+  sleep(2000).then(async () => {
     try {
       const data = await fetchJson(`${HIRO_API}/extended/v1/tx/${txId}`)
-      if ((data as { tx_status?: string }).tx_status) {
-        return (data as { tx_status: string }).tx_status
-      }
-    } catch { /* not found yet */ }
-    await sleep(1500)
-  }
-  return 'pending'
+      const status = (data as { tx_status?: string }).tx_status || 'unknown'
+      console.log(`[cron] tx ${txId} mempool status: ${status}`)
+    } catch { /* ignore */ }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -341,71 +339,91 @@ async function validatePrices(priceStart: number, priceEnd: number, source: stri
 // PROCESS ROUND — resolve-and-distribute via gateway (one atomic call)
 // ---------------------------------------------------------------------------
 
-interface ProcessResult {
-  nextNonce: number
-  resolved: boolean  // true = round was resolved (by us or already), safe to remove from KV
+// ---------------------------------------------------------------------------
+// PHASE 1: Prefetch — read on-chain + fetch prices (parallelizable)
+// ---------------------------------------------------------------------------
+
+interface PrefetchResult {
+  roundId: number
+  round: RoundData
+  priceStart: number
+  priceEnd: number
+  priceSource: string
+  skip: boolean         // true = nothing to settle (no bets, already resolved, prices failed)
+  alreadyResolved: boolean
 }
 
-async function processRound(
-  roundId: number,
+async function prefetchRound(roundId: number, log: LogEntry[]): Promise<PrefetchResult> {
+  const clog = (entry: LogEntry) => {
+    log.push(entry)
+    console.log(`[cron] R${roundId} ${entry.action}: ${entry.detail}${entry.error ? ` ERR=${entry.error}` : ''}`)
+  }
+
+  const empty: PrefetchResult = { roundId, round: { totalUp: 0, totalDown: 0, priceStart: 0, priceEnd: 0, resolved: false }, priceStart: 0, priceEnd: 0, priceSource: '', skip: true, alreadyResolved: false }
+
+  // 1. Read round on-chain
+  const round = await readRound(roundId)
+  if (!round || (round.totalUp + round.totalDown === 0)) {
+    return empty
+  }
+
+  if (round.resolved) {
+    clog({ action: 'already-resolved', detail: `start=${round.priceStart} end=${round.priceEnd}` })
+    return { ...empty, round, skip: true, alreadyResolved: true }
+  }
+
+  clog({ action: 'found', detail: `UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)}` })
+
+  // 2. Fetch prices
+  try {
+    const prices = await fetchRoundPrices(roundId)
+    const outcome = prices.priceEnd > prices.priceStart ? 'UP' : prices.priceEnd < prices.priceStart ? 'DOWN' : 'TIE'
+    clog({ action: 'prices', detail: `start=${prices.priceStart} end=${prices.priceEnd} outcome=${outcome} source=${prices.source}` })
+
+    // 3. Circuit breaker
+    const validation = await validatePrices(prices.priceStart, prices.priceEnd, prices.source)
+    if (!validation.valid) {
+      circuitBreakerFailures++
+      clog({ action: 'circuit-breaker', detail: validation.reason!, error: `consecutive=${circuitBreakerFailures}` })
+      if (circuitBreakerFailures >= 3) {
+        await alert('CRITICAL', `Circuit breaker: ${circuitBreakerFailures} consecutive failures`, {
+          roundId, priceStart: prices.priceStart, priceEnd: prices.priceEnd, reason: validation.reason,
+        })
+      }
+      return empty
+    }
+    circuitBreakerFailures = 0
+
+    return { roundId, round, priceStart: prices.priceStart, priceEnd: prices.priceEnd, priceSource: prices.source, skip: false, alreadyResolved: false }
+  } catch (e) {
+    clog({ action: 'error', detail: 'All price sources unavailable', error: String(e) })
+    return empty
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 2: Settle — broadcast sequentially (nonce ordering required)
+// ---------------------------------------------------------------------------
+
+interface SettleResult {
+  nextNonce: number
+  resolved: boolean
+}
+
+async function settleRound(
+  pf: PrefetchResult,
   nonce: number,
   privateKey: string,
   log: LogEntry[]
-): Promise<ProcessResult> {
+): Promise<SettleResult> {
   let currentNonce = nonce
+  const { roundId, round, priceStart, priceEnd } = pf
 
   const clog = (entry: LogEntry) => {
     log.push(entry)
     console.log(`[cron] R${roundId} ${entry.action}: ${entry.detail}${entry.txId ? ` tx=${entry.txId}` : ''}${entry.error ? ` ERR=${entry.error}` : ''}`)
   }
 
-  // 1. Read round on-chain
-  const round = await readRound(roundId)
-  if (!round || (round.totalUp + round.totalDown === 0)) {
-    return { nextNonce: currentNonce, resolved: false }
-  }
-
-  // Already resolved — nothing to do (resolve-and-distribute is atomic)
-  if (round.resolved) {
-    clog({ action: 'already-resolved', detail: `start=${round.priceStart} end=${round.priceEnd}` })
-    return { nextNonce: currentNonce, resolved: true }
-  }
-
-  clog({
-    action: 'found',
-    detail: `UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)}`,
-  })
-
-  // 2. Fetch Pyth prices (Benchmarks with Hermes fallback)
-  let priceStart: number, priceEnd: number, priceSource: string
-  try {
-    const prices = await fetchRoundPrices(roundId)
-    priceStart = prices.priceStart
-    priceEnd = prices.priceEnd
-    priceSource = prices.source
-  } catch (e) {
-    clog({ action: 'error', detail: 'All price sources unavailable', error: String(e) })
-    return { nextNonce: currentNonce, resolved: false }
-  }
-
-  const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
-  clog({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome} source=${priceSource}` })
-
-  // 3. Circuit breaker — validate prices before submitting
-  const validation = await validatePrices(priceStart, priceEnd, priceSource)
-  if (!validation.valid) {
-    circuitBreakerFailures++
-    clog({ action: 'circuit-breaker', detail: validation.reason!, error: `consecutive=${circuitBreakerFailures}` })
-    if (circuitBreakerFailures >= 3) {
-      await alert('CRITICAL', `Circuit breaker: ${circuitBreakerFailures} consecutive failures`, {
-        roundId, priceStart, priceEnd, reason: validation.reason,
-      })
-    }
-    return { nextNonce: currentNonce, resolved: false }
-  }
-  circuitBreakerFailures = 0 // reset on success
-
-  // 4. Call resolve-and-distribute via gateway (one atomic call)
   try {
     const { txId, nextNonce } = await broadcastWithRetry(
       (nonce) => makeContractCall({
@@ -422,24 +440,18 @@ async function processRound(
       currentNonce
     )
     clog({ action: 'resolve-and-distribute', detail: `broadcast ok`, txId })
-    await waitForMempool(txId)
+    logMempoolStatus(txId)
+    signalRoundResolved(roundId).catch(() => {}) // signal UI to invalidate Hiro cache
     currentNonce = nextNonce
 
-    // 5. Post-settlement: credit jackpot tickets in Redis (off-chain)
-    // NOTE: Jackpot balance accumulation is now on-chain (1% stays in contract).
-    // Tickets only credited for VALID rounds: 2+ distinct wallets on opposite sides.
-    // Same wallet betting both sides does NOT count as valid counterparty.
+    // Post-settlement: credit jackpot tickets (non-blocking for settlement)
     try {
       const validity = await getRoundBettorValidity(roundId)
       if (validity.hasCounterparty) {
         const earlyBets = await getEarlyBets(roundId)
         const betInfos = earlyBets.map(eb => ({
-          user: eb.user,
-          side: eb.side,
-          amountUsd: eb.amountUsd,
-          roundId: eb.roundId,
-          betTimestampS: eb.betTimestampS,
-          roundStartS: eb.roundStartS,
+          user: eb.user, side: eb.side, amountUsd: eb.amountUsd,
+          roundId: eb.roundId, betTimestampS: eb.betTimestampS, roundStartS: eb.roundStartS,
         }))
         await creditTicketsAfterSettlement(roundId.toString(), betInfos)
         clog({ action: 'jackpot-tickets', detail: `tickets credited: ${betInfos.length} early bets (${validity.uniqueWallets} wallets, UP=${validity.upBettors} DOWN=${validity.downBettors})` })
@@ -453,25 +465,16 @@ async function processRound(
     // Dispatch webhook events (fire and forget)
     const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
     dispatchWebhookEvent('round.resolved', {
-      roundId,
-      outcome,
-      priceStart,
-      priceEnd,
+      roundId, outcome, priceStart, priceEnd,
       totalVolume: (round.totalUp + round.totalDown) / 1e6,
     }).catch(() => {})
-
     dispatchWebhookEvent('bet.result', {
-      roundId,
-      outcome,
-      priceStart,
-      priceEnd,
-      totalUp: round.totalUp / 1e6,
-      totalDown: round.totalDown / 1e6,
+      roundId, outcome, priceStart, priceEnd,
+      totalUp: round.totalUp / 1e6, totalDown: round.totalDown / 1e6,
       totalVolume: (round.totalUp + round.totalDown) / 1e6,
     }).catch(() => {})
 
     return { nextNonce: currentNonce, resolved: true }
-
   } catch (e) {
     clog({ action: 'error', detail: 'resolve-and-distribute failed', error: String(e) })
     await alert('WARN', `Settlement failed for round ${roundId}`, { error: String(e) })
@@ -566,17 +569,32 @@ export async function GET(req: Request) {
         logAndPrint({ action: 'scan', detail: `${allIds.length} rounds to process: [${allIds.join(',')}]` })
       }
 
-      for (const roundId of allIds) {
-        const result = await processRound(roundId, nonce, privateKey, log)
-        nonce = result.nextNonce
+      // Phase 1: Prefetch all rounds in parallel (on-chain reads + prices)
+      const prefetched = await Promise.all(
+        allIds.map(id => prefetchRound(id, log).catch(() => null))
+      )
 
-        if (result.resolved && kvSet.has(roundId)) {
-          await removeResolvedRound(roundId)
-          logAndPrint({ action: 'kv-cleanup', detail: `Removed R${roundId} from rounds-with-bets` })
+      // Handle already-resolved rounds (KV cleanup, no broadcast needed)
+      for (const pf of prefetched) {
+        if (pf?.alreadyResolved && kvSet.has(pf.roundId)) {
+          await removeResolvedRound(pf.roundId)
+          logAndPrint({ action: 'kv-cleanup', detail: `Removed R${pf.roundId} from rounds-with-bets` })
         }
       }
 
-      logAndPrint({ action: 'done', detail: `Processed ${allIds.length} rounds` })
+      // Phase 2: Settle ready rounds sequentially (nonce ordering)
+      const toSettle = prefetched.filter((pf): pf is PrefetchResult => pf !== null && !pf.skip)
+      for (const pf of toSettle) {
+        const result = await settleRound(pf, nonce, privateKey, log)
+        nonce = result.nextNonce
+
+        if (result.resolved && kvSet.has(pf.roundId)) {
+          await removeResolvedRound(pf.roundId)
+          logAndPrint({ action: 'kv-cleanup', detail: `Removed R${pf.roundId} from rounds-with-bets` })
+        }
+      }
+
+      logAndPrint({ action: 'done', detail: `Processed ${allIds.length} rounds (${toSettle.length} settled)` })
       await setSponsorNonce(BigInt(nonce))
 
     } catch (e) {

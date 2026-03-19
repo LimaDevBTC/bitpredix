@@ -594,6 +594,27 @@ export async function removeResolvedRound(roundId: number): Promise<void> {
 }
 
 /**
+ * Signal that a round was just resolved (cron sets this).
+ * The /api/round endpoint reads this to invalidate its Hiro cache immediately.
+ */
+export async function signalRoundResolved(roundId: number): Promise<void> {
+  const kv = getRedis()
+  if (!kv) return
+  try {
+    await kv.set('last-resolved-round', roundId, { ex: 120 })
+  } catch { /* non-critical */ }
+}
+
+export async function getLastResolvedRound(): Promise<number | null> {
+  const kv = getRedis()
+  if (!kv) return null
+  try {
+    const val = await kv.get('last-resolved-round') as number | null
+    return val
+  } catch { return null }
+}
+
+/**
  * Get active user count without writing a heartbeat (read-only, for cron).
  */
 export async function getActiveUserCount(): Promise<number> {

@@ -1,7 +1,7 @@
 import { getOrCreateCurrentRound } from '@/lib/rounds'
 import { fetchBtcPriceUsd } from '@/lib/btc-price'
 import { getPriceUp, getPriceDown } from '@/lib/amm'
-import { getRoundState, getRecentTrades, heartbeatAndCount, getRoundBettorValidity } from '@/lib/pool-store'
+import { getRoundState, getRecentTrades, heartbeatAndCount, getRoundBettorValidity, getLastResolvedRound } from '@/lib/pool-store'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -63,11 +63,22 @@ function emptyRoundResponse() {
   })
 }
 
-/** Fetch on-chain round data from Hiro (with 5s cache). */
+/** Fetch on-chain round data from Hiro (with 5s cache, invalidated on settlement signal). */
 async function getOnChainData(roundId: number): Promise<{ up: number; down: number; resolved: boolean; priceStart: number; priceEnd: number }> {
-  // Return cached if fresh
+  // Return cached if fresh — BUT invalidate if cron just resolved a round
   if (hiroCache && hiroCache.roundId === roundId && Date.now() - hiroCache.ts < HIRO_CACHE_TTL_MS) {
-    return hiroCache
+    // Check if cron signaled a resolution (cheap KV read, ~5ms)
+    if (!hiroCache.resolved) {
+      const lastResolved = await getLastResolvedRound()
+      if (lastResolved && lastResolved >= roundId) {
+        // Cache is stale — cron resolved this round, force fresh read
+        hiroCache = null
+      } else {
+        return hiroCache
+      }
+    } else {
+      return hiroCache
+    }
   }
 
   try {
