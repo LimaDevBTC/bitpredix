@@ -245,9 +245,9 @@ export async function POST(req: NextRequest) {
         })
         const responseText = await broadcastRes.text()
 
-        // Successful broadcast returns a JSON-encoded txid string: "0xabcd..."
+        // Successful broadcast returns a JSON-encoded txid string: "0xabcd..." or "abcd..."
         const trimmed = responseText.replace(/^"|"$/g, '').trim()
-        if (broadcastRes.ok && /^0x[0-9a-f]{64}$/i.test(trimmed)) {
+        if (broadcastRes.ok && /^(0x)?[0-9a-f]{64}$/i.test(trimmed)) {
           result = { txid: trimmed }
         } else {
           try {
