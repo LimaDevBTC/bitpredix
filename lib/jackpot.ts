@@ -228,6 +228,7 @@ export interface DrawResult {
 /**
  * Resolve the ticket owner for a given index.
  * Iterates through users of the day, summing tickets until reaching winnerIndex.
+ * Users are stored as hash160 signers — converts to Stacks address before returning.
  */
 export async function resolveTicketOwner(day: string, winnerIndex: bigint): Promise<string | null> {
   const redis = getRedis()
@@ -236,18 +237,35 @@ export async function resolveTicketOwner(day: string, winnerIndex: bigint): Prom
   const users = await redis.smembers(KEYS.ticketUsers(day))
   if (!users || users.length === 0) return null
 
+  let winner: string | null = null
   let cumulative = BigInt(0)
   for (const user of users) {
     const tickets = await redis.get(KEYS.tickets(day, user)) as number | null
     if (!tickets) continue
     cumulative += BigInt(tickets)
     if (cumulative > winnerIndex) {
-      return user
+      winner = user
+      break
     }
   }
 
   // Fallback: return last user (rounding edge case)
-  return users[users.length - 1]
+  if (!winner) winner = users[users.length - 1]
+
+  // Convert hash160 signer to Stacks address if needed
+  if (winner && !winner.startsWith('S')) {
+    try {
+      const { c32address } = await import('c32check')
+      const { NETWORK_NAME } = await import('./config')
+      // version 26 = testnet (ST), version 22 = mainnet (SP)
+      const version = NETWORK_NAME === 'mainnet' ? 22 : 26
+      winner = c32address(version, winner)
+    } catch (e) {
+      console.error('[jackpot] Failed to convert hash160 to address:', e)
+    }
+  }
+
+  return winner
 }
 
 /**
