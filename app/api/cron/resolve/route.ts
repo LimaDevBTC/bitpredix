@@ -540,8 +540,8 @@ export async function GET(req: Request) {
 
       logAndPrint({ action: 'state', detail: `KV rounds=${kvRounds.length} [${kvRounds.join(',')}] activeUsers=${activeUsers}` })
 
-      // Small on-chain scan (last 5 min) as safety net
-      const SCAN_BACK = 5
+      // On-chain scan as safety net (catches rounds missed by KV)
+      const SCAN_BACK = 20
       const scanIds = Array.from({ length: SCAN_BACK }, (_, i) => currentRoundId - SCAN_BACK + i)
       const kvSet = new Set(kvRounds)
       const onChainOnlyIds = scanIds.filter(id => !kvSet.has(id))
