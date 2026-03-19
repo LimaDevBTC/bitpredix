@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLocalStorage, isConnected } from '@stacks/connect'
 
-const CONTRACT_ID = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID!
+import { TOKEN_CONTRACT as CONTRACT_ID } from '@/lib/config'
 const STORAGE_KEY = 'bitpredix_mint_status'
 
 // Salva estado no localStorage para persistir entre reloads

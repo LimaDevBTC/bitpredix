@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 import { HIRO_API as HIRO_TESTNET, hiroHeaders } from '@/lib/hiro'
-const BITPREDIX_ID = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID
+const BITPREDIX_ID = (process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || '').trim()
 
 function parseContractId(id: string): [string, string] {
   const i = id.lastIndexOf('.')

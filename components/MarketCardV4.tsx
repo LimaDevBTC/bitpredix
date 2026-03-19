@@ -16,10 +16,7 @@ const BtcPriceChart = dynamic(() => import('./BtcPriceChart'), {
 import { usePythPrice } from '@/lib/pyth'
 import { sponsoredContractCall, getSavedPublicKey, savePublicKey } from '@/lib/sponsored-tx'
 import confetti from 'canvas-confetti'
-
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID!
-const GATEWAY_CONTRACT = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID!
-const TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID!
+import { BITPREDIX_CONTRACT, GATEWAY_CONTRACT, TOKEN_CONTRACT } from '@/lib/config'
 const MAX_APPROVE_AMOUNT = BigInt('1000000000000') // 1 million USD (6 decimals)
 
 type Side = 'UP' | 'DOWN'

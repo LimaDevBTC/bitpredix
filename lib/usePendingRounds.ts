@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getLocalStorage, isConnected } from '@stacks/connect'
 import { uintCV, standardPrincipalCV, stringAsciiCV, cvToJSON, hexToCV, cvToHex } from '@stacks/transactions'
 
-const BITPREDIX_CONTRACT = process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || ''
+import { BITPREDIX_CONTRACT } from '@/lib/config'
 
 export interface PendingRoundInfo {
   roundId: number

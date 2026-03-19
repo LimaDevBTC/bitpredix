@@ -158,11 +158,12 @@ const REDIS_CACHE_KEY = 'indexer:cache:v2'
 const REDIS_CACHE_TTL = 3600 // 1 hour
 
 function getContractAddress(): string {
-  return process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv2`
+  return (process.env.NEXT_PUBLIC_BITPREDIX_CONTRACT_ID || `${DEPLOYER}.predixv2`).trim()
 }
 
 function getGatewayAddress(): string | null {
-  return process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID || null
+  const gw = process.env.NEXT_PUBLIC_GATEWAY_CONTRACT_ID
+  return gw ? gw.trim() : null
 }
 
 
