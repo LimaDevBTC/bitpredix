@@ -234,27 +234,33 @@ export async function POST(req: NextRequest) {
       const auth = sponsoredTx.auth as any
       const usedOriginNonce = auth.spendingCondition?.nonce
       const usedSponsorNonce = auth.sponsorSpendingCondition?.nonce
-      console.log(`[sponsor] Attempt ${attempt}: origin=${usedOriginNonce}, sponsor=${usedSponsorNonce}`)
 
-      // Debug: compare payload before/after sponsoring
-      const inputPayloadHex = transaction.serialize().slice(-200)
-      const outputPayloadHex = sponsoredTx.serialize().slice(-200)
-      if (inputPayloadHex !== outputPayloadHex) {
-        console.warn(`[sponsor] PAYLOAD CHANGED after sponsorTransaction!`)
-        console.warn(`[sponsor]   input tail:  ${inputPayloadHex}`)
-        console.warn(`[sponsor]   output tail: ${outputPayloadHex}`)
+      // Debug: compare wallet hex vs re-serialized hex
+      const walletReserialize = transaction.serialize()
+      const sponsoredHex = sponsoredTx.serialize()
+      const payloadChanged = walletReserialize.slice(-200) !== sponsoredHex.slice(-200)
+      const debugInfo = {
+        walletHexIn: txHex.slice(0, 80),
+        walletReserialize: walletReserialize.slice(0, 80),
+        sponsoredHex: sponsoredHex.slice(0, 80),
+        walletHexLen: txHex.length,
+        resLen: walletReserialize.length,
+        sponsoredLen: sponsoredHex.length,
+        payloadChanged,
+        walletMatchesReserialize: txHex === walletReserialize,
+        originNonce: String(usedOriginNonce),
+        sponsorNonce: String(usedSponsorNonce),
       }
+      console.log(`[sponsor] Debug:`, JSON.stringify(debugInfo))
 
       let result: Record<string, unknown>
       try {
-        const txHex = sponsoredTx.serialize()
         const broadcastRes = await fetch(`${HIRO_API}/v2/transactions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
-          body: Buffer.from(txHex, 'hex'),
+          body: Buffer.from(sponsoredHex, 'hex'),
         })
         const responseText = await broadcastRes.text()
-        console.log(`[sponsor] Broadcast response (${broadcastRes.status}): ${responseText.slice(0, 300)}`)
 
         // Successful broadcast returns a JSON-encoded txid string: "0xabcd..."
         const trimmed = responseText.replace(/^"|"$/g, '').trim()
@@ -264,23 +270,27 @@ export async function POST(req: NextRequest) {
           try {
             result = JSON.parse(responseText)
           } catch {
-            // Plain text error from node
             if (attempt < MAX_RETRIES) {
               await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
               continue
             }
-            throw new Error(trimmed || `Broadcast failed (HTTP ${broadcastRes.status})`)
+            // Return debug info with the error
+            return NextResponse.json(
+              { error: trimmed || `Broadcast failed (HTTP ${broadcastRes.status})`, debug: debugInfo },
+              { status: 400 }
+            )
           }
         }
       } catch (broadcastErr) {
-        if (broadcastErr instanceof Error && broadcastErr.message.startsWith('Broadcast failed')) throw broadcastErr
         const msg = broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr)
-        console.warn(`[sponsor] Broadcast exception attempt ${attempt}: ${msg}`)
         if (attempt < MAX_RETRIES) {
           await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
           continue
         }
-        throw new Error(`Failed to broadcast: ${msg}`)
+        return NextResponse.json(
+          { error: `Failed to broadcast: ${msg}`, debug: debugInfo },
+          { status: 500 }
+        )
       }
 
       // Check for broadcast errors
@@ -306,7 +316,7 @@ export async function POST(req: NextRequest) {
         await clearSponsorNonce()
         console.error('[sponsor] Broadcast rejected:', JSON.stringify(result))
         return NextResponse.json(
-          { error: r.error, reason, reason_data: reasonData },
+          { error: r.error, reason, reason_data: reasonData, debug: debugInfo },
           { status: 400 }
         )
       }
