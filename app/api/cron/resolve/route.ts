@@ -233,7 +233,26 @@ function findClosestCandleIndex(timestamps: number[], target: number): number {
   return closest
 }
 
-async function fetchRoundPrices(roundId: number): Promise<{ priceStart: number; priceEnd: number }> {
+const PYTH_BTC_FEED_ID = 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43'
+const HERMES_BASE = 'https://hermes.pyth.network'
+
+async function fetchRoundPrices(roundId: number): Promise<{ priceStart: number; priceEnd: number; source: string }> {
+  // Try Benchmarks first, fall back to Hermes historical prices
+  try {
+    const prices = await fetchRoundPricesBenchmarks(roundId)
+    return { ...prices, source: 'benchmarks' }
+  } catch (benchErr) {
+    console.log(`[cron] Benchmarks failed for R${roundId}: ${benchErr}, trying Hermes fallback`)
+    try {
+      const prices = await fetchRoundPricesHermes(roundId)
+      return { ...prices, source: 'hermes' }
+    } catch (hermesErr) {
+      throw new Error(`Both price sources failed — Benchmarks: ${benchErr}, Hermes: ${hermesErr}`)
+    }
+  }
+}
+
+async function fetchRoundPricesBenchmarks(roundId: number): Promise<{ priceStart: number; priceEnd: number }> {
   const roundStartTs = roundId * 60
   const roundEndTs = (roundId + 1) * 60
 
@@ -262,14 +281,28 @@ async function fetchRoundPrices(roundId: number): Promise<{ priceStart: number; 
   }
 }
 
+async function fetchHermesPriceAt(timestamp: number): Promise<number> {
+  const res = await fetch(`${HERMES_BASE}/v2/updates/price/${timestamp}?ids[]=${PYTH_BTC_FEED_ID}`)
+  if (!res.ok) throw new Error(`Hermes HTTP ${res.status}`)
+  const data = await res.json() as { parsed?: Array<{ price?: { price?: string; expo?: number } }> }
+  const p = data.parsed?.[0]?.price
+  if (!p?.price || p?.expo === undefined) throw new Error('Hermes returned no price data')
+  return Math.round(parseFloat(p.price) * Math.pow(10, p.expo) * 100) // USD cents
+}
+
+async function fetchRoundPricesHermes(roundId: number): Promise<{ priceStart: number; priceEnd: number }> {
+  const roundStartTs = roundId * 60
+  const roundEndTs = (roundId + 1) * 60
+  const [priceStart, priceEnd] = await Promise.all([
+    fetchHermesPriceAt(roundStartTs),
+    fetchHermesPriceAt(roundEndTs),
+  ])
+  return { priceStart, priceEnd }
+}
+
 async function fetchCurrentHermesPrice(): Promise<number> {
   try {
-    const res = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43')
-    const data = await res.json() as { parsed?: Array<{ price?: { price?: string; expo?: number } }> }
-    const p = data.parsed?.[0]?.price
-    if (p?.price && p?.expo !== undefined) {
-      return parseFloat(p.price) * Math.pow(10, p.expo) * 100 // to cents
-    }
+    return await fetchHermesPriceAt(Math.floor(Date.now() / 1000))
   } catch { /* fallback */ }
   return 0
 }
@@ -278,19 +311,21 @@ async function fetchCurrentHermesPrice(): Promise<number> {
 // CIRCUIT BREAKER
 // ---------------------------------------------------------------------------
 
-async function validatePrices(priceStart: number, priceEnd: number): Promise<{ valid: boolean; reason?: string }> {
+async function validatePrices(priceStart: number, priceEnd: number, source: string): Promise<{ valid: boolean; reason?: string }> {
   // 1. Excessive change in 60s
   const change = Math.abs(priceEnd - priceStart) / priceStart
   if (change > PRICE_CHANGE_THRESHOLD) {
     return { valid: false, reason: `Price change ${(change * 100).toFixed(2)}% exceeds ${PRICE_CHANGE_THRESHOLD * 100}% threshold` }
   }
 
-  // 2. Cross-check: Benchmarks vs Hermes
-  const hermesPrice = await fetchCurrentHermesPrice()
-  if (hermesPrice > 0) {
-    const divergence = Math.abs(hermesPrice - priceEnd) / hermesPrice
-    if (divergence > PRICE_DIVERGENCE_THRESHOLD) {
-      return { valid: false, reason: `Hermes/Benchmark divergence ${(divergence * 100).toFixed(2)}% exceeds ${PRICE_DIVERGENCE_THRESHOLD * 100}% threshold` }
+  // 2. Cross-check: Benchmarks vs Hermes (skip if prices already came from Hermes)
+  if (source !== 'hermes') {
+    const hermesPrice = await fetchCurrentHermesPrice()
+    if (hermesPrice > 0) {
+      const divergence = Math.abs(hermesPrice - priceEnd) / hermesPrice
+      if (divergence > PRICE_DIVERGENCE_THRESHOLD) {
+        return { valid: false, reason: `Hermes/Benchmark divergence ${(divergence * 100).toFixed(2)}% exceeds ${PRICE_DIVERGENCE_THRESHOLD * 100}% threshold` }
+      }
     }
   }
 
@@ -341,22 +376,23 @@ async function processRound(
     detail: `UP=$${(round.totalUp / 1e6).toFixed(2)} DOWN=$${(round.totalDown / 1e6).toFixed(2)}`,
   })
 
-  // 2. Fetch Pyth prices
-  let priceStart: number, priceEnd: number
+  // 2. Fetch Pyth prices (Benchmarks with Hermes fallback)
+  let priceStart: number, priceEnd: number, priceSource: string
   try {
     const prices = await fetchRoundPrices(roundId)
     priceStart = prices.priceStart
     priceEnd = prices.priceEnd
+    priceSource = prices.source
   } catch (e) {
-    clog({ action: 'error', detail: 'Pyth prices unavailable', error: String(e) })
+    clog({ action: 'error', detail: 'All price sources unavailable', error: String(e) })
     return { nextNonce: currentNonce, resolved: false }
   }
 
   const outcome = priceEnd > priceStart ? 'UP' : priceEnd < priceStart ? 'DOWN' : 'TIE'
-  clog({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome}` })
+  clog({ action: 'prices', detail: `start=${priceStart} end=${priceEnd} outcome=${outcome} source=${priceSource}` })
 
   // 3. Circuit breaker — validate prices before submitting
-  const validation = await validatePrices(priceStart, priceEnd)
+  const validation = await validatePrices(priceStart, priceEnd, priceSource)
   if (!validation.valid) {
     circuitBreakerFailures++
     clog({ action: 'circuit-breaker', detail: validation.reason!, error: `consecutive=${circuitBreakerFailures}` })
