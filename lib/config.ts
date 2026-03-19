@@ -14,9 +14,9 @@ if (!_GATEWAY_CONTRACT) throw new Error('NEXT_PUBLIC_GATEWAY_CONTRACT_ID is requ
 const _TOKEN_CONTRACT = process.env.NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID
 if (!_TOKEN_CONTRACT) throw new Error('NEXT_PUBLIC_TEST_USDCX_CONTRACT_ID is required')
 
-export const BITPREDIX_CONTRACT = _BITPREDIX_CONTRACT
-export const GATEWAY_CONTRACT = _GATEWAY_CONTRACT
-export const TOKEN_CONTRACT = _TOKEN_CONTRACT
+export const BITPREDIX_CONTRACT = _BITPREDIX_CONTRACT.trim()
+export const GATEWAY_CONTRACT = _GATEWAY_CONTRACT.trim()
+export const TOKEN_CONTRACT = _TOKEN_CONTRACT.trim()
 
 /** Split "address.name" into [address, name] */
 export function splitContractId(contractId: string): [string, string] {

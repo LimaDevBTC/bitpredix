@@ -113,7 +113,6 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Deserialize transaction
-    console.log(`[sponsor] Received txHex (${txHex.length} chars): ${txHex.slice(0, 80)}...`)
     const transaction = deserializeTransaction(txHex)
 
     // 2. Validate contract-call to allowed contracts
@@ -235,39 +234,7 @@ export async function POST(req: NextRequest) {
       const usedOriginNonce = auth.spendingCondition?.nonce
       const usedSponsorNonce = auth.sponsorSpendingCondition?.nonce
 
-      // Debug: compare wallet hex vs re-serialized hex vs sponsored hex
-      const walletReserialize = transaction.serialize()
       const sponsoredHex = sponsoredTx.serialize()
-
-      // Find first diff between wallet input and round-tripped
-      let diffPos = -1
-      for (let i = 0; i < Math.max(txHex.length, walletReserialize.length); i++) {
-        if (txHex[i] !== walletReserialize[i]) { diffPos = i; break }
-      }
-      // Find first diff between wallet input and sponsored
-      let diffPosSponsor = -1
-      for (let i = 0; i < Math.max(txHex.length, sponsoredHex.length); i++) {
-        if (txHex[i] !== sponsoredHex[i]) { diffPosSponsor = i; break }
-      }
-
-      const debugInfo = {
-        walletHexLen: txHex.length,
-        resLen: walletReserialize.length,
-        sponsoredLen: sponsoredHex.length,
-        walletMatchesReserialize: txHex === walletReserialize,
-        diffPos,
-        diffContext: diffPos >= 0 ? {
-          wallet:   txHex.slice(Math.max(0, diffPos - 20), diffPos + 40),
-          reserial: walletReserialize.slice(Math.max(0, diffPos - 20), diffPos + 40),
-        } : null,
-        diffPosSponsor,
-        // Return FULL wallet hex and sponsored hex (only ~624 chars each)
-        walletHexFull: txHex,
-        sponsoredHexFull: sponsoredHex,
-        originNonce: String(usedOriginNonce),
-        sponsorNonce: String(usedSponsorNonce),
-      }
-      console.log(`[sponsor] diffPos=${diffPos} diffPosSponsor=${diffPosSponsor}`)
 
       let result: Record<string, unknown>
       try {
@@ -292,7 +259,7 @@ export async function POST(req: NextRequest) {
             }
             // Return debug info with the error
             return NextResponse.json(
-              { error: trimmed || `Broadcast failed (HTTP ${broadcastRes.status})`, debug: debugInfo },
+              { error: trimmed || `Broadcast failed (HTTP ${broadcastRes.status})` },
               { status: 400 }
             )
           }
@@ -304,7 +271,7 @@ export async function POST(req: NextRequest) {
           continue
         }
         return NextResponse.json(
-          { error: `Failed to broadcast: ${msg}`, debug: debugInfo },
+          { error: `Failed to broadcast: ${msg}` },
           { status: 500 }
         )
       }
@@ -332,7 +299,7 @@ export async function POST(req: NextRequest) {
         await clearSponsorNonce()
         console.error('[sponsor] Broadcast rejected:', JSON.stringify(result))
         return NextResponse.json(
-          { error: r.error, reason, reason_data: reasonData, debug: debugInfo },
+          { error: r.error, reason, reason_data: reasonData },
           { status: 400 }
         )
       }
