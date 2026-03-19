@@ -5,8 +5,7 @@
 
 import {
   deserializeTransaction,
-  createStacksPrivateKey,
-  pubKeyfromPrivKey,
+  privateKeyToPublic,
   publicKeyToHex,
   TransactionSigner,
   signMessageHashRsv,
@@ -15,8 +14,7 @@ import crypto from 'crypto'
 import { getStxAddress } from '@stacks/wallet-sdk'
 
 export function getPublicKey(privateKeyHex: string): string {
-  const pk = createStacksPrivateKey(privateKeyHex)
-  return publicKeyToHex(pubKeyfromPrivKey(pk))
+  return publicKeyToHex(privateKeyToPublic(privateKeyHex))
 }
 
 export function getAddress(privateKeyHex: string, network: 'testnet' | 'mainnet' = 'testnet'): string {
@@ -35,7 +33,7 @@ export function getAddress(privateKeyHex: string, network: 'testnet' | 'mainnet'
 export function signTransaction(txHex: string, privateKeyHex: string): string {
   const tx = deserializeTransaction(txHex)
   const signer = new TransactionSigner(tx)
-  signer.signOrigin(createStacksPrivateKey(privateKeyHex))
+  signer.signOrigin(privateKeyHex)
   return tx.serialize()
 }
 

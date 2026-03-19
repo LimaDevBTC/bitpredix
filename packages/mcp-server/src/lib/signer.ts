@@ -7,9 +7,8 @@
 
 import {
   deserializeTransaction,
-  createStacksPrivateKey,
-  pubKeyfromPrivKey,
-  publicKeyToString,
+  privateKeyToPublic,
+  publicKeyToHex,
   TransactionSigner,
   signMessageHashRsv,
 } from '@stacks/transactions'
@@ -19,8 +18,7 @@ import crypto from 'crypto'
  * Derive compressed public key hex from a private key hex string.
  */
 export function getPublicKey(privateKey: string): string {
-  const pk = createStacksPrivateKey(privateKey)
-  return publicKeyToString(pubKeyfromPrivKey(pk))
+  return publicKeyToHex(privateKeyToPublic(privateKey))
 }
 
 /**
@@ -30,7 +28,7 @@ export function getPublicKey(privateKey: string): string {
 export function signTransaction(unsignedTxHex: string, privateKey: string): string {
   const tx = deserializeTransaction(unsignedTxHex)
   const signer = new TransactionSigner(tx)
-  signer.signOrigin(createStacksPrivateKey(privateKey))
+  signer.signOrigin(privateKey)
   return tx.serialize()
 }
 
