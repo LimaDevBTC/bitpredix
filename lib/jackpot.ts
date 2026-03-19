@@ -38,9 +38,19 @@ function getRedis(): Redis | null {
 // ---------------------------------------------------------------------------
 // Keys (Redis -- tickets only, no balance)
 // ---------------------------------------------------------------------------
+/**
+ * Get day ID in ET timezone (YYYY-MM-DD).
+ * All jackpot operations use ET because the draw happens at 21h ET.
+ * Tickets reset at midnight ET, not midnight UTC.
+ */
 function dayId(date?: Date): string {
   const d = date || new Date()
-  return d.toISOString().slice(0, 10) // YYYY-MM-DD
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) // YYYY-MM-DD
+}
+
+/** Public accessor for today's ET date string. */
+export function todayET(): string {
+  return dayId()
 }
 
 const KEYS = {

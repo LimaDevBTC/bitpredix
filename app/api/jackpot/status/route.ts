@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getJackpotBalance, getUserTickets, getTotalTickets } from '@/lib/jackpot'
+import { getJackpotBalance, getUserTickets, getTotalTickets, todayET } from '@/lib/jackpot'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,9 +11,7 @@ export async function GET(req: NextRequest) {
   try {
     const address = req.nextUrl.searchParams.get('address') || ''
 
-    const now = new Date()
-    const etNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
-    const today = etNow.toISOString().slice(0, 10)
+    const today = todayET()
 
     const [balance, totalTickets, userTickets] = await Promise.all([
       getJackpotBalance(),
@@ -23,6 +21,8 @@ export async function GET(req: NextRequest) {
 
     // Countdown to 21h ET
     const drawHour = parseInt(process.env.JACKPOT_DRAW_HOUR || '21', 10)
+    const now = new Date()
+    const etNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
     const drawTime = new Date(etNow)
     drawTime.setHours(drawHour, 0, 0, 0)
     if (etNow >= drawTime) {

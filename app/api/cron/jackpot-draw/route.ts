@@ -13,6 +13,7 @@ import {
   resolveTicketOwner,
   calculatePrize,
   saveDrawResult,
+  todayET,
   type DrawResult,
 } from '@/lib/jackpot'
 import { NETWORK_NAME, GATEWAY_CONTRACT, splitContractId } from '@/lib/config'
@@ -39,10 +40,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    // 1. Get today's date (ET timezone)
+    // 1. Get today's date (ET timezone — consistent with ticket storage)
+    const today = todayET()
     const now = new Date()
     const etDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
-    const today = etDate.toISOString().slice(0, 10)
 
     // 2. Check total tickets
     const totalTickets = await getTotalTickets(today)
