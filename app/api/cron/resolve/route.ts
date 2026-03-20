@@ -170,15 +170,9 @@ async function broadcastWithRetry(
   throw new Error('Exhausted nonce retries')
 }
 
-/** Fire-and-forget: log tx status once it appears in mempool. Non-blocking. */
+/** Log tx id without extra Hiro call to reduce rate limit pressure. */
 function logMempoolStatus(txId: string): void {
-  sleep(2000).then(async () => {
-    try {
-      const data = await fetchJson(`${HIRO_API}/extended/v1/tx/${txId}`)
-      const status = (data as { tx_status?: string }).tx_status || 'unknown'
-      console.log(`[cron] tx ${txId} mempool status: ${status}`)
-    } catch { /* ignore */ }
-  })
+  console.log(`[cron] tx ${txId} broadcast ok (skipping mempool status check to save rate limit)`)
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +541,8 @@ export async function GET(req: Request) {
       logAndPrint({ action: 'state', detail: `KV rounds=${kvRounds.length} [${kvRounds.join(',')}] activeUsers=${activeUsers}` })
 
       // On-chain scan as safety net (catches rounds missed by KV)
-      const SCAN_BACK = 20
+      // Reduced from 20 to 5 to avoid Hiro rate limits — KV is the primary source
+      const SCAN_BACK = 5
       const scanIds = Array.from({ length: SCAN_BACK }, (_, i) => currentRoundId - SCAN_BACK + i)
       const kvSet = new Set(kvRounds)
       const onChainOnlyIds = scanIds.filter(id => !kvSet.has(id))

@@ -432,7 +432,7 @@ export function MarketCardV4() {
       if (cancelled) return
       await fetchPool()
       if (cancelled) return
-      setTimeout(poll, 1000)
+      setTimeout(poll, 2000)
     }
     poll()
     return () => { cancelled = true }

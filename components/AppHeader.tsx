@@ -60,7 +60,7 @@ export function AppHeader() {
           }
         }
       } catch { /* ignore */ }
-      if (!cancelled) setTimeout(poll, 5000) // 5s on non-home pages (lighter)
+      if (!cancelled) setTimeout(poll, 10000) // 10s on non-home pages (lighter)
     }
 
     poll()

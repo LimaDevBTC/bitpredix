@@ -19,7 +19,7 @@ const BITPREDIX_ID = BITPREDIX_CONTRACT
 // so caching for 5s is safe and prevents the slow Hiro call from blocking polls.
 // ---------------------------------------------------------------------------
 let hiroCache: { roundId: number; up: number; down: number; resolved: boolean; priceStart: number; priceEnd: number; ts: number } | null = null
-const HIRO_CACHE_TTL_MS = 5000
+const HIRO_CACHE_TTL_MS = 10_000
 
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',

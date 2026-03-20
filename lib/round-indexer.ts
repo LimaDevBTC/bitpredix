@@ -140,7 +140,7 @@ import { HIRO_API, hiroHeaders, disableApiKey } from '@/lib/hiro'
 const DEPLOYER = 'ST1QPMHMXY9GW7YF5MA9PDD84G3BGV0SSJ74XS9EK'
 const SCAN_PAGE_SIZE = 50
 const MAX_PAGES_PER_SCAN = 20
-const MIN_SCAN_INTERVAL_MS = 30_000
+const MIN_SCAN_INTERVAL_MS = 60_000
 const FETCH_TIMEOUT = 12_000
 const REDIS_CACHE_KEY = 'indexer:cache:v3'
 const REDIS_CACHE_TTL = 3600 // 1 hour
@@ -414,7 +414,7 @@ async function enrichUnresolvedRounds(): Promise<void> {
   const unresolved = [...roundsIndex.values()]
     .filter((r) => !r.resolved && r.endTimestamp < now)
     .sort((a, b) => b.roundId - a.roundId)
-    .slice(0, 10)
+    .slice(0, 3) // Reduced from 10 to 3 to limit Hiro rate pressure
 
   for (const round of unresolved) {
     try {
